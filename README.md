@@ -1,8 +1,8 @@
 # Rasuwa WASH Response Dashboard
 
-A Streamlit dashboard that reads UNICEF's 5W tool export directly and shows progress
-against the Programme Document's 5 Outputs / 10 indicators \u2014 Overview page plus a
-filterable Palika-wise breakdown.
+A Streamlit dashboard that reads UNICEF's 5W tool export and tracks progress against
+the Programme Document's 5 Outputs / 10 indicators, activity records, and georeferenced
+project sites for Chay-Ya Nepal and UNICEF.
 
 ## What's in this folder
 
@@ -53,7 +53,24 @@ before putting it online.
 
 ---
 
-## 4. How to update the data
+## 4. Download the monitoring workbook
+
+Use **Download Excel monitoring pack** in the dashboard sidebar to export the currently loaded 5W records. The generated workbook includes:
+
+- **Indicator Tracker:** targets, progress, remaining reach, tracking status, and progress bars.
+- **Palika Tracker:** reach and demographic disaggregation by municipality.
+- **5W Activity Register:** detailed activity records and mapped output/indicator.
+- **Data Quality** and **Unmapped Activities:** field completeness and rows that need mapping review.
+
+The export is generated from the workbook currently loaded in the dashboard, including an uploaded refresh. It does not modify the source UNICEF workbook.
+
+## 5. Project site map
+
+The **Project site map** view embeds the shared Google My Maps layer and provides a filtered 5W activity register. The current 5W export contains Palika and site-name fields but no GPS coordinates, so map pins are not automatically linked to individual activity rows. To enable that link, add coordinates or a stable site identifier to the 5W data. The My Maps layer must be shared with dashboard viewers; consider site-location sensitivity before making it public.
+
+Dashboard records are limited to UNICEF and Chay-Ya Nepal. Other implementing-partner rows in an uploaded export are excluded.
+
+## 6. How to update the data
 
 You have two options, and they're not mutually exclusive:
 
