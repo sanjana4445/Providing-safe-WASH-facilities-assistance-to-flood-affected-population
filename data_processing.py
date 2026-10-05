@@ -4,6 +4,8 @@ Reads the UNICEF 5W export and the Chay-Ya monitoring matrix, maps every
 5W activity row to one of the 5 PD Outputs / 10 indicators, and produces
 clean, aggregated tables for the Streamlit app to display.
 """
+from io import BytesIO
+
 import pandas as pd
 import numpy as np
 import openpyxl
@@ -215,6 +217,24 @@ def build_output_summary(indicator_summary):
     return pd.DataFrame(rows)
 
 
+def build_palika_output_summary(df):
+    """Aggregate reach by Palika and Output using the indicator de-duplication rules."""
+    working = df.copy()
+    working["progress"] = working.apply(progress_value, axis=1)
+    normal = working[~working["indicator"].isin(DEDUP_INDICATORS)]
+    normal_totals = normal.groupby(["municipality", "output"], dropna=True)["progress"].sum().reset_index()
+
+    dedup = working[working["indicator"].isin(DEDUP_INDICATORS)]
+    if len(dedup):
+        output_by_indicator = INDICATORS_DF.set_index("indicator")["output"]
+        dedup_totals = dedup.groupby(["municipality", "indicator"], dropna=True)["progress"].max().reset_index()
+        dedup_totals["output"] = dedup_totals["indicator"].map(output_by_indicator)
+        dedup_totals = dedup_totals.groupby(["municipality", "output"], dropna=True)["progress"].sum().reset_index()
+        normal_totals = pd.concat([normal_totals, dedup_totals], ignore_index=True)
+
+    return normal_totals.groupby(["municipality", "output"], as_index=False)["progress"].sum()
+
+
 DEMO_COLS = ["progress", "hh_reached", "girls", "boys", "women", "men", "elderly_women", "elderly_men", "pwd"]
 
 
@@ -261,6 +281,119 @@ def build_palika_summary(df):
         row["households_reached"] = row.pop("hh_reached")
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def build_monitoring_workbook(df):
+    """Create a formatted Excel monitoring pack from the loaded UNICEF 5W records."""
+    indicator_summary = build_indicator_summary(df).copy()
+    indicator_summary["gap_to_target"] = (
+        indicator_summary["target"] - indicator_summary["progress"]
+    ).clip(lower=0)
+    indicator_summary["tracking_status"] = np.select(
+        [
+            ~indicator_summary["tracked_in_5w"],
+            indicator_summary["progress"].fillna(0) >= indicator_summary["target"],
+            indicator_summary["progress"].fillna(0) > 0,
+        ],
+        ["Manual tracking", "Target reached", "In progress"],
+        default="Not started",
+    )
+    indicator_columns = {
+        "output_label": "Output", "indicator": "Indicator", "unit": "Unit",
+        "target": "Target", "progress": "Progress", "gap_to_target": "Remaining",
+        "pct": "Progress (%)", "tracked_in_5w": "Tracked in 5W",
+        "tracking_status": "Tracking status",
+    }
+    indicator_tracker = indicator_summary[list(indicator_columns)].rename(columns=indicator_columns)
+
+    palika_columns = {
+        "palika": "Palika", "activities": "Activity rows", "people_reached": "People reached",
+        "households_reached": "Households reached", "girls": "Girls (<18)", "boys": "Boys (<18)",
+        "women": "Women (18+)", "men": "Men (18+)", "elderly_women": "Elderly women (60+)",
+        "elderly_men": "Elderly men (60+)", "pwd": "People with disabilities",
+    }
+    palika_tracker = build_palika_summary(df)[list(palika_columns)].rename(columns=palika_columns)
+
+    register = df.copy()
+    register["record_progress"] = register.apply(progress_value, axis=1)
+    register["output"] = register["output"].map(lambda value: f"Output {int(value)}" if pd.notna(value) else "Unmapped")
+    register = register.rename(columns={
+        "partner": "Implementing partner", "district": "District", "municipality": "Palika",
+        "ward": "Ward", "holding_centre": "Holding centre / displacement site",
+        "type_specific_location": "Specific location", "location_type": "Location type",
+        "activity": "Activity", "activity_description": "Activity description", "modality": "Modality",
+        "activity_target": "Activity target", "activity_reached": "Activity reached",
+        "hh_targeted": "Households targeted", "people_targeted": "People targeted",
+        "hh_reached": "Households reached", "people_reached": "People reached",
+        "record_progress": "Mapped indicator progress", "girls": "Girls (<18)", "boys": "Boys (<18)",
+        "women": "Women (18+)", "men": "Men (18+)", "elderly_women": "Elderly women (60+)",
+        "elderly_men": "Elderly men (60+)", "pwd": "People with disabilities", "status": "Activity status",
+        "start_date": "Start date", "end_date": "End date", "notes": "Notes",
+        "output": "Mapped output", "indicator": "Mapped indicator",
+    })
+
+    quality_rows = []
+    for source_column, label in [
+        ("ward", "Ward"), ("activity_description", "Activity description"),
+        ("people_targeted", "People targeted"), ("people_reached", "People reached"),
+        ("hh_targeted", "Households targeted"), ("hh_reached", "Households reached"),
+        ("start_date", "Start date"), ("end_date", "End date"),
+    ]:
+        values = df[source_column]
+        missing = values.isna() | values.astype(str).str.strip().eq("")
+        quality_rows.append({
+            "Field": label, "Records missing": int(missing.sum()),
+            "Records populated": int((~missing).sum()), "Completeness (%)": round((~missing).mean() * 100, 1),
+        })
+    quality_rows.append({
+        "Field": "Unmapped activity/output", "Records missing": int(df["output"].isna().sum()),
+        "Records populated": int(df["output"].notna().sum()),
+        "Completeness (%)": round(df["output"].notna().mean() * 100, 1),
+    })
+    quality = pd.DataFrame(quality_rows)
+    unmapped = df[df["output"].isna()][["partner", "municipality", "ward", "activity", "activity_description", "status"]].rename(columns={
+        "partner": "Implementing partner", "municipality": "Palika", "ward": "Ward",
+        "activity": "Activity", "activity_description": "Activity description", "status": "Activity status",
+    })
+
+    sheets = {
+        "Indicator Tracker": indicator_tracker,
+        "Palika Tracker": palika_tracker,
+        "5W Activity Register": register,
+        "Data Quality": quality,
+        "Unmapped Activities": unmapped,
+    }
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        for sheet_name, table in sheets.items():
+            table.to_excel(writer, sheet_name=sheet_name, index=False)
+        workbook = writer.book
+        header_fill = openpyxl.styles.PatternFill("solid", fgColor="0D3B54")
+        for sheet_name, table in sheets.items():
+            worksheet = workbook[sheet_name]
+            worksheet.freeze_panes = "A2"
+            worksheet.auto_filter.ref = worksheet.dimensions
+            worksheet.row_dimensions[1].height = 30
+            for cell in worksheet[1]:
+                cell.fill = header_fill
+                cell.font = openpyxl.styles.Font(color="FFFFFF", bold=True)
+                cell.alignment = openpyxl.styles.Alignment(wrap_text=True, vertical="center")
+            for column_cells in worksheet.columns:
+                column_letter = column_cells[0].column_letter
+                values = [len(str(cell.value)) for cell in column_cells if cell.value is not None]
+                worksheet.column_dimensions[column_letter].width = min(max(max(values, default=10) + 2, 12), 42)
+            if sheet_name == "Indicator Tracker":
+                for row in range(2, worksheet.max_row + 1):
+                    worksheet.cell(row, 7).number_format = '0.0"%"'
+                worksheet.conditional_formatting.add(
+                    f"G2:G{worksheet.max_row}",
+                    openpyxl.formatting.rule.DataBarRule(start_type="num", start_value=0, end_type="num", end_value=100, color="1CABE2"),
+                )
+            elif sheet_name == "Data Quality":
+                for row in range(2, worksheet.max_row + 1):
+                    worksheet.cell(row, 4).number_format = '0.0"%"'
+
+    return output.getvalue()
 
 
 if __name__ == "__main__":
