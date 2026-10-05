@@ -38,7 +38,9 @@ INDICATORS = [
 ]
 INDICATORS_DF = pd.DataFrame(INDICATORS)
 
-OUTPUT_COLORS = {1: "#64748B", 2: "#1CABE2", 3: "#159488", 4: "#7C5CBF", 5: "#E1922E"}
+OUTPUT_COLORS = {
+    1: "#58727F", 2: "#00AEEF", 3: "#D28B27", 4: "#E4775A", 5: "#26734D",
+}
 PALIKAS = ["Gosaikunda Gaunpalika", "Uttargaya Gaunpalika", "Kalika Gaunpalika", "Aamachhodingmo Gaunpalika"]
 
 # ----------------------------------------------------------------------
@@ -115,17 +117,33 @@ def classify_row(activity, location_type, holding_centre, type_specific_location
 # 3. Load the UNICEF 5W workbook
 # ----------------------------------------------------------------------
 FIVEW_COLUMNS = {
-    "IMPLEMENTING PARTNER": "partner", "DISTRICT": "district", "MUNICIPALITY": "municipality", "WARD": "ward",
+    "LEAD AGENCY": "lead_agency", "IMPLEMENTING PARTNER": "partner", "DONOR": "donor",
+    "PROVINCE": "province", "DISTRICT": "district", "MUNICIPALITY": "municipality", "WARD": "ward",
     "HOLDING CENTRE / DISPLACEMENT SITE": "holding_centre", "TYPE SPECIFIC LOCATION": "type_specific_location",
-    "LOCATION TYPE": "location_type", "ACTIVITY ": "activity", "ACTIVITY DESCRIPTION ": "activity_description",
-    "RESPONSE MODALITY ": "modality", "ACTIVITY TARGET": "activity_target", "ACTIVITY REACHED": "activity_reached",
+    "LOCATION TYPE": "location_type", "SECTOR": "sector", "AREA OF RESPONSIBILITY (AOR)": "aor",
+    "DISASTER/RESPONSE PLAN": "response_plan", "ACTIVITY ": "activity",
+    "ACTIVITY DESCRIPTION ": "activity_description", "RESPONSE MODALITY ": "modality",
+    "ACTIVITY INDICATOR": "activity_indicator", "ACTIVITY INDICATOR UNIT": "activity_indicator_unit",
+    "ACTIVITY TARGET": "activity_target", "ACTIVITY REACHED": "activity_reached",
+    "RELIEF ITEMS (Standard In-Kind items)": "relief_items",
+    "RELIEF ITEM DESCRIPTION": "relief_item_description", "RELIEF ITEM UNIT": "relief_item_unit",
+    "NUMBER OF RELIEF ITEMS PLANNED": "relief_items_planned",
+    "NUMBER OF RELIEF ITEMS DISTRIBUTED": "relief_items_distributed",
+    "CASH DELIVERY MECHANISM": "cash_delivery_mechanism", "CASH CONDITIONALITY": "cash_conditionality",
+    "FSP/DELIVERY AGENT": "fsp_delivery_agent", "CASH BENEFICIARY UNIT": "cash_beneficiary_unit",
+    "CASH TRANSFER VALUE PER UNIT (USD)": "cash_transfer_value_per_unit",
+    "CASH FREQUENCY OF TRANSFER ": "cash_frequency",
+    "TOTAL AMOUNT OF EXPECTED CASH TRANSFER (USD)": "total_expected_cash_transfer",
+    "TOTAL TRANSFER/DISBURSED AMOUNT (USD)": "total_disbursed_amount",
     "HOUSEHOLDS TARGETED": "hh_targeted", "PEOPLE TARGETED (Individuals)": "people_targeted",
     "HOUSEHOLDS REACHED": "hh_reached", "TOTAL NUMBER OF BENEFICIARIES REACHED (people/individuals)": "people_reached",
     "GIRLS (< 18 yrs)": "girls", "BOYS (< 18 yrs)": "boys", "WOMEN (18+ yrs)": "women", "MEN  (18+ yrs)": "men",
     "ELDERLY WOMEN (60 plus)": "elderly_women", "ELDERLY MEN (60 plus)": "elderly_men",
-    "PEOPLE WITH DISABILITIES": "pwd", "ACTIVITY STATUS ": "status",
-    " ACTIVITY START DATE": "start_date", "ACTIVITY END DATE": "end_date", "NOTES": "notes",
+    "PEOPLE WITH DISABILITIES": "pwd", "ORGANISATIONS or INSTITUTIONS ": "organisations_institutions",
+    "ACTIVITY STATUS ": "status", " ACTIVITY START DATE": "start_date",
+    "ACTIVITY END DATE": "end_date", "NOTES": "notes", "EDIT DATE": "edit_date",
 }
+FIVEW_DISPLAY_HEADERS = {column: source.strip() for source, column in FIVEW_COLUMNS.items()}
 
 
 def load_5w(path, sheet_name="5W_Data_Entry", header_row=6):
@@ -146,7 +164,9 @@ def load_5w(path, sheet_name="5W_Data_Entry", header_row=6):
             df[col] = np.nan
     df = df[["partner", "district", "municipality", "ward"] + [c for c in keep if c not in ("partner", "district", "municipality", "ward")]]
     for c in ["people_reached", "hh_reached", "girls", "boys", "women", "men", "elderly_women", "elderly_men",
-              "pwd", "people_targeted", "hh_targeted", "activity_target", "activity_reached"]:
+              "pwd", "people_targeted", "hh_targeted", "activity_target", "activity_reached",
+              "relief_items_planned", "relief_items_distributed", "cash_transfer_value_per_unit",
+              "total_expected_cash_transfer", "total_disbursed_amount"]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
     df["municipality"] = df["municipality"].astype(str).str.strip()
     # Source sheet mixes real dates, typed text, and blanks in the same column - coerce to a
@@ -318,27 +338,35 @@ def build_monitoring_workbook(df):
     register["record_progress"] = register.apply(progress_value, axis=1)
     register["output"] = register["output"].map(lambda value: f"Output {int(value)}" if pd.notna(value) else "Unmapped")
     register = register.rename(columns={
-        "partner": "Implementing partner", "district": "District", "municipality": "Palika",
+        "lead_agency": "Lead agency", "partner": "Implementing partner", "donor": "Donor",
+        "province": "Province", "district": "District", "municipality": "Palika",
         "ward": "Ward", "holding_centre": "Holding centre / displacement site",
         "type_specific_location": "Specific location", "location_type": "Location type",
+        "sector": "Sector", "aor": "Area of responsibility", "response_plan": "Disaster / response plan",
         "activity": "Activity", "activity_description": "Activity description", "modality": "Modality",
+        "activity_indicator": "Activity indicator", "activity_indicator_unit": "Activity indicator unit",
         "activity_target": "Activity target", "activity_reached": "Activity reached",
+        "relief_items": "Relief items", "relief_item_description": "Relief item description",
+        "relief_item_unit": "Relief item unit", "relief_items_planned": "Relief items planned",
+        "relief_items_distributed": "Relief items distributed",
+        "cash_delivery_mechanism": "Cash delivery mechanism", "cash_conditionality": "Cash conditionality",
+        "fsp_delivery_agent": "FSP / delivery agent", "cash_beneficiary_unit": "Cash beneficiary unit",
+        "cash_transfer_value_per_unit": "Cash transfer value per unit (USD)",
+        "cash_frequency": "Cash frequency", "total_expected_cash_transfer": "Expected cash transfer (USD)",
+        "total_disbursed_amount": "Disbursed amount (USD)",
         "hh_targeted": "Households targeted", "people_targeted": "People targeted",
         "hh_reached": "Households reached", "people_reached": "People reached",
         "record_progress": "Mapped indicator progress", "girls": "Girls (<18)", "boys": "Boys (<18)",
         "women": "Women (18+)", "men": "Men (18+)", "elderly_women": "Elderly women (60+)",
-        "elderly_men": "Elderly men (60+)", "pwd": "People with disabilities", "status": "Activity status",
-        "start_date": "Start date", "end_date": "End date", "notes": "Notes",
+        "elderly_men": "Elderly men (60+)", "pwd": "People with disabilities",
+        "organisations_institutions": "Organisations / institutions", "status": "Activity status",
+        "start_date": "Start date", "end_date": "End date", "notes": "Notes", "edit_date": "Edit date",
         "output": "Mapped output", "indicator": "Mapped indicator",
     })
 
     quality_rows = []
-    for source_column, label in [
-        ("ward", "Ward"), ("activity_description", "Activity description"),
-        ("people_targeted", "People targeted"), ("people_reached", "People reached"),
-        ("hh_targeted", "Households targeted"), ("hh_reached", "Households reached"),
-        ("start_date", "Start date"), ("end_date", "End date"),
-    ]:
+    for source_column in FIVEW_COLUMNS.values():
+        label = FIVEW_DISPLAY_HEADERS[source_column]
         values = df[source_column]
         missing = values.isna() | values.astype(str).str.strip().eq("")
         quality_rows.append({

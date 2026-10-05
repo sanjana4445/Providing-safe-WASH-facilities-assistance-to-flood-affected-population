@@ -4,12 +4,21 @@ A Streamlit dashboard that reads UNICEF's 5W tool export and tracks progress aga
 the Programme Document's 5 Outputs / 10 indicators, activity records, and georeferenced
 project sites for Chay-Ya Nepal and UNICEF.
 
+## Dashboard views
+
+- **Overview:** five programme outputs, all ten targets, and one progress chart for the seven indicators tracked through 5W.
+- **Palika detail:** a four-Palika comparison chart, selected activity fields, and an expandable complete 5W register.
+- **Activities by output:** activity-type breakdowns with completed/ongoing status colors.
+- **Beneficiary demographics:** sex and age disaggregation, with elderly and disability counts shown separately.
+- **Beneficiary explorer:** select an output, WASH activity, and people/household reach measure.
+- **Project map:** embedded Google My Maps plus filtered 5W records. Pins are not automatically linked to activities because the source has no GPS coordinates or shared site ID.
+
 ## What's in this folder
 
 | File | Purpose |
 |---|---|
 | `app.py` | The dashboard itself (Streamlit UI) |
-| `data_processing.py` | Reads the 5W Excel file, maps every activity row to an Output/Indicator, computes progress |
+| `data_processing.py` | Reads meaningful 5W fields, maps activity rows to an Output/Indicator, and computes progress |
 | `Rasuwa_-_UNICEF_WASH_NEPAL_5Ws_Data_Entry.xlsx` | The data the dashboard reads by default |
 | `requirements.txt` | Python packages needed |
 | `.streamlit/config.toml` | Colour theme |
@@ -59,8 +68,9 @@ Use **Download Excel monitoring pack** in the dashboard sidebar to export the cu
 
 - **Indicator Tracker:** targets, progress, remaining reach, tracking status, and progress bars.
 - **Palika Tracker:** reach and demographic disaggregation by municipality.
-- **5W Activity Register:** detailed activity records and mapped output/indicator.
-- **Data Quality** and **Unmapped Activities:** field completeness and rows that need mapping review.
+- **5W Activity Register:** all 50 meaningful source fields plus mapped output/indicator and progress.
+- **Data Quality:** completeness for each mapped source field.
+- **Unmapped Activities:** rows that need mapping review.
 
 The export is generated from the workbook currently loaded in the dashboard, including an uploaded refresh. It does not modify the source UNICEF workbook.
 

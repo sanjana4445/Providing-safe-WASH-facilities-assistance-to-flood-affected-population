@@ -1,19 +1,25 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime
 
 from data_processing import (
-    load_5w, build_indicator_summary, build_output_summary, build_palika_summary,
-    build_palika_output_summary, build_monitoring_workbook, OUTPUT_COLORS, PALIKAS,
+    FIVEW_COLUMNS, INDICATORS_DF, OUTPUT_COLORS, PALIKAS,
+    build_indicator_summary, build_monitoring_workbook, build_palika_output_summary,
+    build_palika_summary, load_5w,
 )
 
-st.set_page_config(page_title="Rasuwa WASH Response Dashboard", page_icon="\U0001F4A7", layout="wide")
+st.set_page_config(page_title="Rasuwa WASH Response", page_icon="\U0001F4A7", layout="wide")
 
-NAVY = "#123B4A"
-MUTED = "#5B6B70"
-BG = "#F2F6F5"
+UNICEF_BLUE = "#009FE3"
+CHAYA_GREEN = "#26734D"
+COMPLETED_GREEN = "#25815A"
+ONGOING_AMBER = "#D28B27"
+NAVY = "#183A46"
+MUTED = "#64747A"
+PAGE_BG = "#F4F7F6"
+ORG_COLORS = {"UNICEF": UNICEF_BLUE, "Chay-Ya Nepal": CHAYA_GREEN}
+STATUS_COLORS = {"Completed": COMPLETED_GREEN, "Ongoing": ONGOING_AMBER}
 PARTNER_ALIASES = {
     "unicef": "UNICEF", "unicef nepal": "UNICEF",
     "chay ya": "Chay-Ya Nepal", "chay ya nepal": "Chay-Ya Nepal",
@@ -22,43 +28,85 @@ PARTNER_SCOPE = ["Chay-Ya Nepal", "UNICEF"]
 MAP_ID = "1qtThPTqZuAuCMHl_Oqkq-0OW-ZFdjsU"
 MAP_EMBED_URL = f"https://www.google.com/maps/d/embed?mid={MAP_ID}"
 MAP_EDIT_URL = f"https://www.google.com/maps/d/u/0/edit?mid={MAP_ID}"
+PAGE_OPTIONS = [
+    "Overview", "Palika detail", "Activities by output",
+    "Beneficiary demographics", "Beneficiary explorer", "Project map",
+]
+FIELD_LABELS = {
+    "lead_agency": "Lead agency", "partner": "Implementing partner", "donor": "Donor",
+    "province": "Province", "district": "District", "municipality": "Palika", "ward": "Ward",
+    "holding_centre": "Holding centre / displacement site", "type_specific_location": "Specific location",
+    "location_type": "Location type", "sector": "Sector", "aor": "Area of responsibility",
+    "response_plan": "Disaster / response plan", "activity": "Activity",
+    "activity_description": "Activity description", "modality": "Response modality",
+    "activity_indicator": "Activity indicator", "activity_indicator_unit": "Activity indicator unit",
+    "activity_target": "Activity target", "activity_reached": "Activity reached",
+    "relief_items": "Relief items", "relief_item_description": "Relief item description",
+    "relief_item_unit": "Relief item unit", "relief_items_planned": "Relief items planned",
+    "relief_items_distributed": "Relief items distributed", "cash_delivery_mechanism": "Cash delivery mechanism",
+    "cash_conditionality": "Cash conditionality", "fsp_delivery_agent": "FSP / delivery agent",
+    "cash_beneficiary_unit": "Cash beneficiary unit", "cash_transfer_value_per_unit": "Cash transfer value per unit (USD)",
+    "cash_frequency": "Cash frequency", "total_expected_cash_transfer": "Expected cash transfer (USD)",
+    "total_disbursed_amount": "Disbursed amount (USD)", "hh_targeted": "Households targeted",
+    "people_targeted": "People targeted", "hh_reached": "Households reached",
+    "people_reached": "People reached", "girls": "Girls (<18)", "boys": "Boys (<18)",
+    "women": "Women (18+)", "men": "Men (18+)", "elderly_women": "Elderly women (60+)",
+    "elderly_men": "Elderly men (60+)", "pwd": "People with disabilities",
+    "organisations_institutions": "Organisations / institutions", "status": "Activity status",
+    "start_date": "Activity start date", "end_date": "Activity end date", "notes": "Notes",
+    "edit_date": "Edit date",
+}
+SOURCE_COLUMNS = list(FIVEW_COLUMNS.values())
+FULL_REGISTER_COLUMNS = SOURCE_COLUMNS + ["output", "indicator"]
+DETAIL_COLUMNS = [
+    "lead_agency", "partner", "district", "municipality", "ward", "location_type",
+    "holding_centre", "type_specific_location", "sector", "activity", "activity_description",
+    "modality", "activity_indicator", "activity_indicator_unit", "activity_target", "activity_reached",
+    "relief_items", "relief_item_unit", "relief_items_planned", "relief_items_distributed",
+    "people_targeted", "people_reached", "hh_targeted", "hh_reached", "status", "start_date", "end_date",
+]
 
 st.markdown(f"""
 <style>
-.stApp {{ background-color: {BG}; color: #203238; }}
+.stApp {{ background: {PAGE_BG}; color: #24373D; }}
 h1, h2, h3 {{ color: {NAVY}; letter-spacing: 0; }}
+.block-container {{ padding-top: 1.2rem; padding-bottom: 3rem; max-width: 1500px; }}
+div[data-testid="stSidebar"] {{ background: #EAF0EE; }}
 div[data-testid="stMetric"] {{
-    background-color: white; border: 1px solid #DFE8E5; border-top: 3px solid #159488;
-    border-radius: 7px; padding: 14px 16px; box-shadow: 0 2px 8px rgba(18,59,74,0.04);
+    background: #FFFFFF; border: 1px solid #DCE6E2; border-radius: 6px;
+    padding: 12px 15px; box-shadow: 0 2px 8px rgba(24,58,70,0.035);
 }}
 div[data-testid="stMetricValue"] {{ color: {NAVY}; }}
-.block-container {{ padding-top: 1.35rem; padding-bottom: 2.5rem; }}
-div[data-testid="stSidebar"] {{ background-color: #E8F0ED; }}
-div[data-testid="stProgress"] > div > div {{ background-color: #159488; }}
+div[data-testid="stRadio"] > label {{ display: none; }}
+div[data-testid="stRadio"] div[role="radiogroup"] {{ gap: 0.35rem; flex-wrap: wrap; }}
+div[data-testid="stRadio"] div[role="radiogroup"] label {{
+    border: 1px solid #DCE6E2; border-radius: 5px; background: #FFFFFF; padding: 0.35rem 0.7rem;
+}}
+div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) {{
+    background: {NAVY}; border-color: {NAVY}; color: white;
+}}
 </style>
 """, unsafe_allow_html=True)
 
 st.sidebar.title("\U0001F4A7 Rasuwa WASH")
-st.sidebar.caption("Chay-Ya Nepal \u00d7 UNICEF Nepal \u2014 Rasuwa GLOF Response")
+st.sidebar.caption("Chay-Ya Nepal  |  UNICEF Nepal")
 st.sidebar.markdown("### Data source")
 uploaded = st.sidebar.file_uploader(
-    "Upload the latest 5W export to refresh (optional)", type=["xlsx"],
-    help="If you don't upload anything, the dashboard reads the copy bundled in this repo. "
-         "To make an update permanent for everyone, replace that file in GitHub instead.",
+    "Upload latest 5W export", type=["xlsx"],
+    help="The dashboard reads the bundled UNICEF workbook unless a newer export is uploaded.",
 )
 DEFAULT_PATH = "Rasuwa_-_UNICEF_WASH_NEPAL_5Ws_Data_Entry.xlsx"
 
 
-@st.cache_data(show_spinner="Reading the 5W workbook\u2026")
+@st.cache_data(show_spinner="Reading the 5W workbook…")
 def get_data(file_bytes_or_path):
     return load_5w(file_bytes_or_path)
 
 
 try:
-    source = uploaded if uploaded is not None else DEFAULT_PATH
-    df = get_data(source)
+    df = get_data(uploaded if uploaded is not None else DEFAULT_PATH)
 except Exception as exc:
-    st.error(f"Couldn't read the 5W workbook: {exc}")
+    st.error(f"Could not read the 5W workbook: {exc}")
     st.stop()
 
 normalized_partners = (
@@ -68,313 +116,359 @@ normalized_partners = (
 df["partner"] = normalized_partners.map(PARTNER_ALIASES)
 excluded_partner_rows = int(df["partner"].isna().sum())
 df = df[df["partner"].notna()].copy()
-
 indicator_summary = build_indicator_summary(df)
-output_summary = build_output_summary(indicator_summary)
+output_labels = INDICATORS_DF[["output", "output_label"]].drop_duplicates().sort_values("output")
+output_names = dict(zip(output_labels["output"], output_labels["output_label"]))
+output_numbers = sorted(INDICATORS_DF["output"].unique().tolist())
+active_output_numbers = sorted(df["output"].dropna().astype(int).unique().tolist())
 palika_summary = build_palika_summary(df)
 unmapped = df[df["output"].isna()]
 
 st.sidebar.markdown("---")
-st.sidebar.metric("Activity rows loaded", len(df))
-st.sidebar.caption("Reporting scope: Chay-Ya Nepal and UNICEF only")
+st.sidebar.metric("5W records in scope", f"{len(df):,}")
+st.sidebar.caption("Only UNICEF and Chay-Ya Nepal records are included.")
 if excluded_partner_rows:
-    st.sidebar.caption(f"{excluded_partner_rows} record(s) outside this scope excluded.")
+    st.sidebar.caption(f"{excluded_partner_rows} record(s) from other partners excluded.")
 if len(unmapped):
-    st.sidebar.warning(
-        f"{len(unmapped)} row(s) use an Activity this dashboard doesn't yet map to an Output "
-        "and are excluded from totals. Review them in the Excel export."
-    )
-st.sidebar.caption(f"Last loaded: {datetime.now().strftime('%d %b %Y, %H:%M')}")
+    st.sidebar.warning(f"{len(unmapped)} activity row(s) are not mapped to an output; review the Excel export.")
+st.sidebar.caption(f"Loaded {datetime.now().strftime('%d %b %Y, %H:%M')}")
 st.sidebar.download_button(
     "Download Excel monitoring pack",
     data=build_monitoring_workbook(df),
     file_name=f"rasuwa_wash_5w_monitoring_{datetime.now():%Y%m%d}.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     use_container_width=True,
-    help="Includes indicator and Palika trackers, the full 5W register, and data-quality checks.",
 )
 
-page = st.sidebar.radio("View", ["Programme overview", "Activity monitoring", "Project site map"])
+st.markdown(
+    f"<div style='border-left:4px solid {UNICEF_BLUE}; padding-left:12px; margin:2px 0 8px;'>"
+    f"<span style='color:{UNICEF_BLUE};font-weight:700;'>UNICEF</span>"
+    f"<span style='color:#89979A;padding:0 8px;'>|</span>"
+    f"<span style='color:{CHAYA_GREEN};font-weight:700;'>Chay-Ya Nepal</span>"
+    "<span style='color:#64747A;padding-left:10px;'>Rasuwa WASH response monitoring</span></div>",
+    unsafe_allow_html=True,
+)
+page = st.radio("Dashboard section", PAGE_OPTIONS, horizontal=True, label_visibility="collapsed")
 
-if page == "Programme overview":
-    st.title("Providing Safe WASH Facilities & Assistance to Flood-Affected Population")
-    st.caption("Progress against the Programme Document's 5 Outputs / 10 indicators, live from the UNICEF 5W tool.")
 
-    tracked = indicator_summary[indicator_summary["tracked_in_5w"]]
-    denominator = tracked["target"].sum()
-    overall_pct = tracked["progress"].clip(upper=tracked["target"]).sum() / denominator * 100 if denominator else 0
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Overall progress (capped at target)", f"{overall_pct:.0f}%")
-    c2.metric("Indicators tracked via 5W", f"{int(tracked.shape[0])} / 10")
-    c3.metric("Activity records", f"{len(df):,}")
-    active_palikas = (palika_summary["activities"] > 0).sum()
-    c4.metric("Palikas with reported activity", f"{active_palikas} / 4")
+def display_register(frame, full=False, height=500):
+    table = frame.copy()
+    table["mapped_output"] = table["output"].map(
+        lambda value: f"Output {int(value)}" if pd.notna(value) else "Unmapped"
+    )
+    table = table.drop(columns=["output"]).rename(columns={
+        **FIELD_LABELS, "indicator": "Mapped PD indicator", "mapped_output": "Mapped PD output",
+    })
+    columns = [FIELD_LABELS[col] for col in SOURCE_COLUMNS] + ["Mapped PD output", "Mapped PD indicator"]
+    if not full:
+        columns = [FIELD_LABELS[col] for col in DETAIL_COLUMNS] + ["Mapped PD output", "Mapped PD indicator"]
+    return table.reindex(columns=columns)
 
-    st.markdown("### Output summary")
-    output_columns = st.columns(5)
-    for index, row in output_summary.iterrows():
-        with output_columns[index]:
-            percent = row["avg_pct"]
-            label = row["output_label"].split("\u2013", 1)[-1].strip()
-            value = "n/a" if pd.isna(percent) else f"{percent:.0f}%"
+
+def palika_metric_table(frame):
+    summary = build_palika_summary(frame).set_index("palika")
+    summary.index = summary.index.str.replace(" Gaunpalika", "", regex=False)
+    return summary
+
+
+def render_palika_bar(frame, measure, chart_key):
+    if measure == "People reached (deduplicated)":
+        values = palika_metric_table(frame)["people_reached"]
+    elif measure == "Households reached (deduplicated)":
+        values = palika_metric_table(frame)["households_reached"]
+    elif measure == "Activity records":
+        values = frame.groupby("municipality").size()
+    else:
+        source_column = {
+            "People targeted (row total)": "people_targeted",
+            "Households targeted (row total)": "hh_targeted",
+            "Relief items distributed": "relief_items_distributed",
+        }[measure]
+        values = frame.groupby("municipality")[source_column].sum(min_count=1)
+    values = values.reindex(PALIKAS, fill_value=0)
+    chart_data = pd.DataFrame({"Palika": values.index, measure: values.values})
+    chart_data["Palika"] = chart_data["Palika"].str.replace(" Gaunpalika", "", regex=False)
+    chart_data[measure] = chart_data[measure].fillna(0)
+    palika_colors = {
+        "Gosaikunda": UNICEF_BLUE, "Uttargaya": CHAYA_GREEN,
+        "Kalika": "#D28B27", "Aamachhodingmo": "#597D8A",
+    }
+    figure = px.bar(
+        chart_data, x=measure, y="Palika", orientation="h", color="Palika",
+        color_discrete_map=palika_colors, text=measure,
+        labels={measure: measure, "Palika": ""},
+    )
+    figure.update_layout(
+        height=330, plot_bgcolor="white", paper_bgcolor="white", showlegend=False,
+        margin=dict(l=8, r=18, t=12, b=24), yaxis={"categoryorder": "total ascending"},
+    )
+    figure.update_traces(texttemplate="%{x:,.0f}", textposition="outside", cliponaxis=False)
+    st.plotly_chart(figure, width="stretch", key=chart_key)
+
+
+if page == "Overview":
+    st.title("Rasuwa WASH response")
+    st.caption("Five programme outputs · ten targets · UNICEF 5W activity progress")
+    tracked = indicator_summary[indicator_summary["tracked_in_5w"]].copy()
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Programme outputs", "5")
+    k2.metric("PD indicators", "10")
+    k3.metric("Tracked in 5W", f"{int(tracked.shape[0])} / 10")
+    k4.metric("Activity records", f"{len(df):,}")
+
+    st.markdown("### Outputs")
+    output_cards = st.columns(5)
+    for column, (_, item) in zip(output_cards, output_labels.iterrows()):
+        indicator_count = int((indicator_summary["output"] == item["output"]).sum())
+        short_label = item["output_label"].split("\u2013", 1)[-1].strip()
+        with column:
             st.markdown(
-                f"<div style='border-left:5px solid {row['color']}; padding:8px 11px; "
-                f"background:white; border-radius:5px; min-height:96px;'>"
-                f"<div style='font-size:12px;color:{MUTED};'>Output {row['output']}</div>"
-                f"<div style='font-size:13px;font-weight:600;color:{NAVY};margin:3px 0 8px 0;'>"
-                f"{label}</div><div style='font-size:22px;font-weight:700;color:{row['color']};'>"
-                f"{value}</div></div>",
+                f"<div style='background:#fff;border:1px solid #DCE6E2;border-top:3px solid {OUTPUT_COLORS[item['output']]};"
+                "border-radius:5px;padding:10px 11px;min-height:92px;'>"
+                f"<div style='font-size:12px;color:{MUTED};'>OUTPUT {int(item['output'])}</div>"
+                f"<div style='font-size:13px;font-weight:650;color:{NAVY};margin-top:5px;'>{short_label}</div>"
+                f"<div style='font-size:11px;color:{MUTED};margin-top:6px;'>{indicator_count} indicators</div></div>",
                 unsafe_allow_html=True,
             )
 
-    st.markdown("### Indicator detail | target vs. progress")
-    for output_number in sorted(indicator_summary["output"].unique()):
-        subset = indicator_summary[indicator_summary["output"] == output_number]
-        st.markdown(f"**{subset['output_label'].iloc[0]}**")
-        for _, row in subset.iterrows():
-            left, right = st.columns([3, 1])
-            with left:
-                if row["tracked_in_5w"]:
-                    percent = min(row["pct"], 100) if pd.notna(row["pct"]) else 0
-                    text = f"{row['indicator']} | {row['progress']:,.0f} / {row['target']:,} {row['unit']} ({row['pct']:.0f}%)"
-                    st.progress(int(percent), text=text)
-                else:
-                    st.markdown(
-                        f"<div style='color:{MUTED};font-size:14px;padding:6px 0;'>"
-                        f"{row['indicator']} | target {row['target']} {row['unit']} "
-                        "<i>(not in 5W; track through the coordination log)</i></div>",
-                        unsafe_allow_html=True,
-                    )
-            with right:
-                st.caption(row["unit"])
-        st.markdown("")
-
-    st.markdown("### Indicator progress vs. target")
-    figure = go.Figure()
-    for _, row in tracked.iterrows():
-        figure.add_trace(go.Bar(
-            name=row["indicator"], x=[row["indicator"][:28]], y=[row["progress"]],
-            marker_color=OUTPUT_COLORS[row["output"]], showlegend=False,
-        ))
-        figure.add_trace(go.Scatter(
-            x=[row["indicator"][:28]], y=[row["target"]], mode="markers",
-            marker=dict(symbol="line-ew", size=28, color=NAVY, line_width=3), showlegend=False,
-        ))
-    figure.update_layout(height=380, plot_bgcolor="white", paper_bgcolor="white",
-                         yaxis_title="People / units reached", margin=dict(t=10, b=120))
-    st.plotly_chart(figure, width="stretch")
-    st.caption("Bars show reported progress; navy markers show targets. Coordination and feedback indicators need manual tracking.")
-
-    with st.expander("How reach is calculated"):
-        st.markdown("""
-- Activity rows are mapped to one of the five Programme Document outputs. School, CFS, and health-facility locations take priority for Output 4.
-- Water, sanitation, and learning-space reach is summed from reported beneficiaries.
-- Hygiene promotion and critical-supply rows can repeat the same people across item types. For these, the largest reported reach per Palika and indicator is counted once.
-- Unmapped activities are excluded from totals and listed on the Excel export's Unmapped Activities tab.
-- Output 1 coordination indicators are not recorded in the 5W tool and need a separate coordination log.
-        """)
-
-elif page == "Activity monitoring":
-    st.title("Activity monitoring")
-    st.caption("Chay-Ya Nepal and UNICEF records only. Explore activities by location, reporting window, and status.")
-
-    output_options = sorted(df["output"].dropna().unique().tolist())
-    status_options = sorted(df["status"].dropna().unique().tolist())
-    partner_options = sorted(df["partner"].dropna().unique().tolist())
-    activity_options = sorted(df["activity"].dropna().unique().tolist())
-    f1, f2, f3, f4, f5 = st.columns(5)
-    selected_palikas = f1.multiselect("Palika", PALIKAS, default=PALIKAS)
-    selected_outputs = f2.multiselect(
-        "Output", output_options, default=output_options,
-        format_func=lambda value: f"Output {int(value)}",
+    st.markdown("### Ten-indicator target tracker")
+    tracker = indicator_summary.copy()
+    tracker["Remaining"] = (tracker["target"] - tracker["progress"]).clip(lower=0)
+    tracker["Progress (%)"] = tracker["pct"].where(tracker["tracked_in_5w"])
+    tracker["Tracking"] = tracker.apply(
+        lambda row: "Manual" if not row["tracked_in_5w"] else (
+            "Target reached" if row["progress"] >= row["target"] else
+            "In progress" if row["progress"] > 0 else "Not started"
+        ), axis=1,
     )
-    selected_status = f3.multiselect("Activity status", status_options, default=status_options)
-    selected_partners = f4.multiselect("Implementing partner", partner_options, default=partner_options)
-    selected_activities = f5.multiselect("Activity", activity_options, default=activity_options)
+    tracker_view = tracker.rename(columns={
+        "output": "Output #", "indicator": "Indicator", "unit": "Unit", "target": "Target",
+        "progress": "Progress", "tracked_in_5w": "In 5W",
+    })[["Output #", "Indicator", "Target", "Progress", "Remaining", "Progress (%)", "Unit", "Tracking"]]
+    st.dataframe(tracker_view, width="stretch", hide_index=True, height=395)
 
+    st.markdown("### Progress by indicator")
+    chart_data = tracked.copy()
+    chart_data["Indicator"] = chart_data["indicator"]
+    chart_data["Progress (%)"] = chart_data["pct"]
+    chart_data["Output"] = chart_data["output"].map(lambda number: f"Output {int(number)}")
+    color_map = {f"Output {number}": color for number, color in OUTPUT_COLORS.items()}
+    overview_chart = px.bar(
+        chart_data.sort_values("Progress (%)"), x="Progress (%)", y="Indicator", orientation="h",
+        color="Output", color_discrete_map=color_map, text="Progress (%)",
+        labels={"Progress (%)": "Target progress", "Indicator": ""},
+    )
+    overview_chart.add_vline(x=100, line_dash="dot", line_color=CHAYA_GREEN, annotation_text="Target")
+    overview_chart.update_traces(texttemplate="%{x:.0f}%", textposition="outside", cliponaxis=False)
+    overview_chart.update_layout(
+        height=410, barmode="group", plot_bgcolor="white", paper_bgcolor="white",
+        legend_title="", margin=dict(l=8, r=46, t=18, b=30),
+    )
+    st.plotly_chart(overview_chart, width="stretch", key="overview_progress_chart")
+    st.caption("Chart includes the seven indicators tracked in 5W. Three coordination/feedback indicators require separate manual tracking.")
+
+elif page == "Palika detail":
+    st.title("Palika-wise 5W detail")
+    st.caption("Compare reported activity and reach across the four programme Palikas; open the register for every source field.")
+    c1, c2, c3 = st.columns(3)
+    selected_palikas = c1.multiselect("Palika", PALIKAS, default=PALIKAS, key="palika_filter")
+    available_outputs = sorted(df["output"].dropna().unique().tolist())
+    selected_outputs = c2.multiselect(
+        "Output", available_outputs, default=available_outputs, key="palika_output_filter",
+        format_func=lambda number: f"Output {int(number)}",
+    )
+    statuses = sorted(df["status"].dropna().unique().tolist())
+    selected_status = c3.multiselect("Activity status", statuses, default=statuses, key="palika_status_filter")
     filtered = df[
         df["municipality"].isin(selected_palikas)
         & df["output"].isin(selected_outputs)
         & df["status"].isin(selected_status)
-        & df["partner"].isin(selected_partners)
-        & df["activity"].isin(selected_activities)
     ].copy()
-    start_dates = pd.to_datetime(df["start_date"], format="%d-%b-%Y", errors="coerce")
-    if start_dates.notna().any():
-        minimum_date, maximum_date = start_dates.min().date(), start_dates.max().date()
-        with st.expander("Filter by activity start date", expanded=False):
-            selected_dates = st.date_input(
-                "Reporting window", value=(minimum_date, maximum_date),
-                min_value=minimum_date, max_value=maximum_date, format="DD/MM/YYYY",
-            )
-        if isinstance(selected_dates, (tuple, list)) and len(selected_dates) == 2:
-            record_dates = pd.to_datetime(filtered["start_date"], format="%d-%b-%Y", errors="coerce")
-            filtered = filtered[record_dates.dt.date.between(selected_dates[0], selected_dates[1])]
 
-    filtered_palika = build_palika_summary(filtered)
-    filtered_palika = filtered_palika[filtered_palika["palika"].isin(selected_palikas)]
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Activity records", f"{len(filtered):,}")
-    c2.metric(
-        "People reached", f"{filtered_palika['people_reached'].sum():,.0f}",
-        help="Uses the dashboard's de-duplication rules for repeated supply and hygiene rows.",
-    )
-    c3.metric("Ongoing", f"{int(filtered['status'].eq('Ongoing').sum()):,}")
-    c4.metric("Completed", f"{int(filtered['status'].eq('Completed').sum()):,}")
+    reach_values = palika_metric_table(filtered)
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Activity rows", f"{len(filtered):,}")
+    k2.metric("People reached", f"{reach_values['people_reached'].sum():,.0f}")
+    k3.metric("Households reached", f"{reach_values['households_reached'].sum():,.0f}")
+    k4.metric("Palikas reporting", f"{int((reach_values['activities'] > 0).sum())} / 4")
 
-    st.markdown("### Reach by Palika and Output")
-    reach_by_output = build_palika_output_summary(filtered)
-    reach_by_output = reach_by_output[reach_by_output["municipality"].isin(selected_palikas)]
-    if len(reach_by_output):
-        reach_by_output["Output"] = reach_by_output["output"].map(lambda value: f"Output {int(value)}")
-        reach_figure = px.bar(
-            reach_by_output, x="municipality", y="progress", color="Output",
-            color_discrete_map={f"Output {key}": value for key, value in OUTPUT_COLORS.items()},
-            labels={"progress": "People reached", "municipality": ""},
-        )
-        reach_figure.update_layout(height=360, plot_bgcolor="white", paper_bgcolor="white",
-                                   legend_title="", margin=dict(t=12, b=40))
-        st.plotly_chart(reach_figure, width="stretch")
-    else:
-        st.info("No matching activity for this filter combination.")
-
-    left_chart, right_chart = st.columns(2)
-    with left_chart:
-        st.markdown("### Activity status")
-        status_counts = filtered["status"].fillna("Not reported").value_counts().rename_axis("Status").reset_index(name="Records")
-        if len(status_counts):
-            status_figure = px.pie(
-                status_counts, names="Status", values="Records", hole=0.62,
-                color_discrete_sequence=["#159488", "#1CABE2", "#E1922E", "#98A8A4"],
-            )
-            status_figure.update_layout(height=300, plot_bgcolor="white", paper_bgcolor="white",
-                                        margin=dict(t=8, b=8), legend_title="")
-            st.plotly_chart(status_figure, width="stretch")
-        else:
-            st.info("No status records match these filters.")
-    with right_chart:
-        st.markdown("### Records by start month")
-        trend = filtered.assign(
-            _date=pd.to_datetime(filtered["start_date"], format="%d-%b-%Y", errors="coerce")
-        ).dropna(subset=["_date"])
-        if len(trend):
-            trend["Month"] = trend["_date"].dt.to_period("M").astype(str)
-            monthly = trend.groupby("Month").size().reset_index(name="Activity records")
-            trend_figure = px.line(monthly, x="Month", y="Activity records", markers=True,
-                                   color_discrete_sequence=["#1CABE2"])
-            trend_figure.update_layout(height=300, plot_bgcolor="white", paper_bgcolor="white",
-                                       margin=dict(t=8, b=8))
-            st.plotly_chart(trend_figure, width="stretch")
-        else:
-            st.info("No dated activity records match these filters.")
-
-    st.markdown("### Reporting coverage by Output and Palika")
-    coverage_source = filtered.dropna(subset=["output"]).copy()
-    coverage_source["Output"] = coverage_source["output"].map(lambda value: f"Output {int(value)}")
-    coverage = pd.crosstab(coverage_source["Output"], coverage_source["municipality"]).reindex(
-        columns=selected_palikas, fill_value=0,
-    )
-    if not coverage.empty and len(coverage.columns):
-        coverage_figure = px.imshow(
-            coverage, text_auto=True, aspect="auto",
-            color_continuous_scale=["#EDF3F1", "#159488"],
-            labels={"x": "Palika", "y": "Output", "color": "Activity rows"},
-        )
-        coverage_figure.update_layout(height=250, margin=dict(t=8, b=8), coloraxis_showscale=False)
-        st.plotly_chart(coverage_figure, width="stretch")
-    else:
-        st.info("No mapped reporting coverage for this filter combination.")
-
-    st.markdown("### Demographic reach")
-    if not filtered_palika.empty:
-        demographic = filtered_palika[
-            ["palika", "girls", "boys", "women", "men", "elderly_women", "elderly_men", "pwd"]
-        ].set_index("palika")
-        demographic.index = demographic.index.str.replace(" Gaunpalika", "")
-        st.bar_chart(demographic, color=["#C77A1E", "#1CABE2", "#159488", "#7C5CBF", "#E1922E", "#64748B", "#A6362C"])
-    st.caption("Demographic figures follow the same de-duplication logic as the programme overview.")
-
-    st.markdown("### Activity log")
-    display_columns = [
-        "partner", "output", "indicator", "municipality", "ward", "holding_centre",
-        "type_specific_location", "activity", "activity_description", "modality", "status",
-        "people_targeted", "people_reached", "hh_targeted", "hh_reached", "girls", "boys",
-        "women", "men", "elderly_women", "elderly_men", "pwd", "start_date", "end_date", "notes",
+    measure_options = [
+        "People reached (deduplicated)", "Households reached (deduplicated)", "Activity records",
+        "People targeted (row total)", "Households targeted (row total)", "Relief items distributed",
     ]
-    display_labels = {
-        "partner": "Implementing partner", "output": "Output", "indicator": "Mapped indicator",
-        "municipality": "Palika", "ward": "Ward", "holding_centre": "Holding centre",
-        "type_specific_location": "Specific location", "activity": "Activity",
-        "activity_description": "Activity description", "modality": "Modality", "status": "Status",
-        "people_targeted": "People targeted", "people_reached": "People reached",
-        "hh_targeted": "Households targeted", "hh_reached": "Households reached",
-        "girls": "Girls (<18)", "boys": "Boys (<18)", "women": "Women (18+)", "men": "Men (18+)",
-        "elderly_women": "Elderly women (60+)", "elderly_men": "Elderly men (60+)",
-        "pwd": "People with disabilities", "start_date": "Start date", "end_date": "End date",
-        "notes": "Notes",
-    }
-    st.dataframe(
-        filtered[display_columns].rename(columns=display_labels),
-        width="stretch", height=430, hide_index=True,
+    measure = st.selectbox("Compare Palikas by", measure_options, key="palika_measure")
+    render_palika_bar(filtered, measure, "palika_metric_chart")
+    if measure.endswith("row total"):
+        st.caption("Target values are shown as reported per 5W activity row and may repeat across item rows.")
+
+    st.markdown("### Activity register")
+    st.dataframe(display_register(filtered), width="stretch", height=440, hide_index=True)
+    with st.expander("Show every source 5W field"):
+        st.dataframe(display_register(filtered, full=True, height=550), width="stretch", height=550, hide_index=True)
+
+elif page == "Activities by output":
+    st.title("Activities by programme output")
+    st.caption("Unpack each output into its reported activity types, status, and reach.")
+    default_output = active_output_numbers[0] if active_output_numbers else output_numbers[0]
+    selected_output = st.selectbox(
+        "Programme output", output_numbers, index=output_numbers.index(default_output),
+        format_func=lambda number: output_names[number], key="activity_output",
     )
+    output_frame = df[df["output"] == selected_output].copy()
+    activity_options = ["All activities"] + sorted(output_frame["activity"].dropna().unique().tolist())
+    selected_activity = st.selectbox("Activity type", activity_options, key="activity_type")
+    if selected_activity != "All activities":
+        output_frame = output_frame[output_frame["activity"] == selected_activity]
+    activity_statuses = sorted(output_frame["status"].dropna().unique().tolist())
+    selected_activity_status = st.multiselect(
+        "Activity status", activity_statuses, default=activity_statuses, key="activity_status",
+    )
+    output_frame = output_frame[output_frame["status"].isin(selected_activity_status)]
+
+    unique_reach = build_palika_output_summary(output_frame)
+    unique_reach = unique_reach[unique_reach["output"] == selected_output]["progress"].sum()
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Activity rows", f"{len(output_frame):,}")
+    k2.metric("Palikas", f"{output_frame['municipality'].nunique():,}")
+    k3.metric("People reached", f"{unique_reach:,.0f}", help="Deduplicated using the programme indicator rules.")
+    k4.metric("Completed", f"{int(output_frame['status'].eq('Completed').sum()):,}")
+
+    activity_measure = st.selectbox(
+        "Bar chart measure", ["Activity records", "Reported people reached", "Relief items distributed"],
+        key="activity_chart_measure",
+    )
+    if output_frame.empty:
+        st.info("No activity records for this output/filter combination.")
+    else:
+        if activity_measure == "Activity records":
+            x_label = "Activity records"
+            activity_chart_data = output_frame.groupby(["activity", "status"]).size().reset_index(name=x_label)
+        elif activity_measure == "Reported people reached":
+            x_label = "Reported people reached"
+            activity_chart_data = output_frame.groupby(["activity", "status"])["people_reached"].sum(min_count=1).reset_index(name=x_label)
+        else:
+            x_label = "Relief items distributed"
+            activity_chart_data = output_frame.groupby(["activity", "status"])["relief_items_distributed"].sum(min_count=1).reset_index(name=x_label)
+        activity_chart_data = activity_chart_data.fillna({x_label: 0})
+        activity_chart_data = activity_chart_data.sort_values(x_label)
+        activity_chart_data["Activity"] = activity_chart_data["activity"]
+        activity_chart = px.bar(
+            activity_chart_data, x=x_label, y="Activity", orientation="h",
+            color="status", color_discrete_map=STATUS_COLORS, text=x_label,
+            labels={x_label: x_label, "Activity": "", "status": "Status"}, barmode="stack",
+        )
+        activity_chart.update_traces(texttemplate="%{x:,.0f}", textposition="outside", cliponaxis=False)
+        activity_chart.update_layout(
+            height=max(320, 44 * len(activity_chart_data)), plot_bgcolor="white", paper_bgcolor="white",
+            showlegend=False, margin=dict(l=8, r=34, t=16, b=24),
+        )
+        st.plotly_chart(activity_chart, width="stretch", key="output_activity_chart")
+        if activity_measure == "Reported people reached":
+            st.caption("Activity bars show row-reported reach. Use the deduplicated KPI above for programme totals.")
+
+    st.markdown("### Matching 5W records")
+    st.dataframe(display_register(output_frame), width="stretch", height=420, hide_index=True)
+    with st.expander("Show every source 5W field"):
+        st.dataframe(display_register(output_frame, full=True, height=550), width="stretch", height=550, hide_index=True)
+
+elif page == "Beneficiary demographics":
+    st.title("Beneficiary demographics")
+    st.caption("Reported sex and age-group reach by Palika. Elderly and disability counts are shown separately to avoid double-counting overlapping groups.")
+    demo_palikas = st.multiselect("Palika", PALIKAS, default=PALIKAS, key="demo_palikas")
+    demo_statuses = sorted(df["status"].dropna().unique().tolist())
+    demo_selected_status = st.multiselect("Activity status", demo_statuses, default=demo_statuses, key="demo_status")
+    demographic_rows = df[df["municipality"].isin(demo_palikas) & df["status"].isin(demo_selected_status)]
+    demo = palika_metric_table(demographic_rows).reindex(
+        [palika for palika in PALIKAS if palika.replace(" Gaunpalika", "") in demo_palikas]
+    )
+    demo.index = demo.index.str.replace(" Gaunpalika", "", regex=False)
+    demo_kpis = st.columns(4)
+    demo_kpis[0].metric("Girls (<18)", f"{demo['girls'].sum():,.0f}")
+    demo_kpis[1].metric("Boys (<18)", f"{demo['boys'].sum():,.0f}")
+    demo_kpis[2].metric("Women (18+)", f"{demo['women'].sum():,.0f}")
+    demo_kpis[3].metric("Men (18+)", f"{demo['men'].sum():,.0f}")
+
+    demographic_chart_data = (
+        demo[["girls", "boys", "women", "men"]]
+        .rename(columns={"girls": "Girls (<18)", "boys": "Boys (<18)", "women": "Women (18+)", "men": "Men (18+)"})
+        .rename_axis("Palika").reset_index().melt(id_vars="Palika", var_name="Group", value_name="Beneficiaries")
+    )
+    demographic_chart = px.bar(
+        demographic_chart_data, x="Palika", y="Beneficiaries", color="Group", barmode="group",
+        color_discrete_map={
+            "Girls (<18)": "#E77C62", "Boys (<18)": UNICEF_BLUE,
+            "Women (18+)": CHAYA_GREEN, "Men (18+)": "#627B8A",
+        },
+    )
+    demographic_chart.update_layout(height=390, plot_bgcolor="white", paper_bgcolor="white",
+                                    legend_title="", margin=dict(t=16, b=24))
+    st.plotly_chart(demographic_chart, width="stretch", key="demographic_chart")
+
+    other_groups = demo[["elderly_women", "elderly_men", "pwd"]].rename(columns={
+        "elderly_women": "Elderly women (60+)", "elderly_men": "Elderly men (60+)",
+        "pwd": "People with disabilities",
+    })
+    st.markdown("### Additional reported groups")
+    st.dataframe(other_groups, width="stretch")
+
+elif page == "Beneficiary explorer":
+    st.title("Beneficiary explorer")
+    st.caption("Select an output and activity to compare reported reach across Palikas.")
+    output_choices = ["All outputs"] + output_numbers
+    chosen_output = st.selectbox(
+        "Programme output", output_choices,
+        format_func=lambda number: "All outputs" if number == "All outputs" else output_names[number],
+        key="beneficiary_output",
+    )
+    beneficiary_rows = df.copy()
+    if chosen_output != "All outputs":
+        beneficiary_rows = beneficiary_rows[beneficiary_rows["output"] == chosen_output]
+    activity_choices = ["All activities"] + sorted(beneficiary_rows["activity"].dropna().unique().tolist())
+    chosen_activity = st.selectbox("WASH activity", activity_choices, key="beneficiary_activity")
+    if chosen_activity != "All activities":
+        beneficiary_rows = beneficiary_rows[beneficiary_rows["activity"] == chosen_activity]
+    reach_measure = st.selectbox(
+        "Beneficiary measure", ["People reached", "Households reached"], key="beneficiary_measure",
+    )
+    beneficiary_summary = palika_metric_table(beneficiary_rows)
+    summary_column = "people_reached" if reach_measure == "People reached" else "households_reached"
+    chart_values = beneficiary_summary[summary_column].copy()
+    chart_data = pd.DataFrame({reach_measure: chart_values.values}, index=chart_values.index)
+    chart_data.index = chart_data.index.str.replace(" Gaunpalika", "", regex=False)
+    chart_data.index.name = "Palika"
+    chart_data = chart_data.reset_index()
+    total_reach = chart_data[reach_measure].sum()
+    k1, k2 = st.columns(2)
+    k1.metric(f"Total {reach_measure.lower()}", f"{total_reach:,.0f}")
+    k2.metric("Activity rows", f"{len(beneficiary_rows):,}")
+    beneficiary_chart = px.bar(
+        chart_data, x="Palika", y=reach_measure, color="Palika",
+        color_discrete_map={
+            "Gosaikunda": UNICEF_BLUE, "Uttargaya": CHAYA_GREEN,
+            "Kalika": "#D28B27", "Aamachhodingmo": "#597D8A",
+        }, text=reach_measure,
+    )
+    beneficiary_chart.update_traces(texttemplate="%{y:,.0f}", textposition="outside", cliponaxis=False)
+    beneficiary_chart.update_layout(height=390, plot_bgcolor="white", paper_bgcolor="white",
+                                   showlegend=False, margin=dict(t=16, b=24))
+    st.plotly_chart(beneficiary_chart, width="stretch", key="beneficiary_chart")
+    st.caption("Reach follows the dashboard's deduplication rules for hygiene promotion and critical supplies.")
+    st.dataframe(chart_data, width="stretch", hide_index=True)
 
 else:
     st.title("Project site map")
-    st.caption("Georeferenced sites from the Chay-Ya Nepal and UNICEF Google My Map.")
+    st.caption("Shared Google My Maps layer and the related UNICEF / Chay-Ya activity records.")
     if hasattr(st, "iframe"):
-        st.iframe(MAP_EMBED_URL, height=620)
+        st.iframe(MAP_EMBED_URL, height=560)
     else:
-        st.components.v1.iframe(MAP_EMBED_URL, height=620, scrolling=True)
-    st.link_button("Open map in Google My Maps", MAP_EDIT_URL)
-    st.caption("Map visibility follows Google My Maps sharing settings. Use view access for dashboard viewers.")
-
-    st.markdown("### Related 5W activities")
-    st.caption(
-        "Filter the 5W activity register below. The map pins are from the shared My Maps layer; "
-        "they are not automatically joined to 5W rows because the source export has no GPS coordinates."
-    )
-    map_data = df.copy()
-    map_data["output_label"] = map_data["output"].map(
-        lambda value: f"Output {int(value)}" if pd.notna(value) else "Unmapped"
-    )
-    map_palika_options = sorted(map_data["municipality"].dropna().unique().tolist())
-    map_output_options = sorted(map_data["output_label"].unique().tolist())
-    map_status_options = sorted(map_data["status"].dropna().unique().tolist())
-    present_partners = [partner for partner in PARTNER_SCOPE if partner in map_data["partner"].unique()]
-    m1, m2, m3, m4 = st.columns(4)
-    map_palikas = m1.multiselect("Palika", map_palika_options, default=map_palika_options, key="map_palikas")
-    map_outputs = m2.multiselect("Output", map_output_options, default=map_output_options, key="map_outputs")
-    map_statuses = m3.multiselect("Activity status", map_status_options, default=map_status_options, key="map_statuses")
-    map_partners = m4.multiselect("Organization", PARTNER_SCOPE, default=present_partners, key="map_partners")
-
-    map_filtered = map_data[
-        map_data["municipality"].isin(map_palikas)
-        & map_data["output_label"].isin(map_outputs)
-        & map_data["status"].isin(map_statuses)
-        & map_data["partner"].isin(map_partners)
-    ].copy()
-    map_summary = build_palika_summary(map_filtered)
-    map_summary = map_summary[map_summary["palika"].isin(map_palikas)]
-    location_text = (
-        map_filtered["type_specific_location"].fillna("").astype(str).str.strip().ne("")
-        | map_filtered["holding_centre"].fillna("").astype(str).str.strip().ne("")
-    )
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Activity records", f"{len(map_filtered):,}")
-    k2.metric("Palikas represented", f"{map_filtered['municipality'].nunique():,}")
-    k3.metric("Records with site text", f"{int(location_text.sum()):,}")
-    k4.metric("People reached", f"{map_summary['people_reached'].sum():,.0f}")
-
-    map_columns = [
-        "partner", "output_label", "indicator", "municipality", "ward", "holding_centre",
-        "type_specific_location", "activity", "activity_description", "status",
-        "people_reached", "start_date", "end_date",
-    ]
-    map_labels = {
-        "partner": "Organization", "output_label": "Output", "indicator": "Mapped indicator",
-        "municipality": "Palika", "ward": "Ward", "holding_centre": "Holding centre",
-        "type_specific_location": "Specific location", "activity": "Activity",
-        "activity_description": "Activity description", "status": "Status",
-        "people_reached": "People reached", "start_date": "Start date", "end_date": "End date",
-    }
-    st.dataframe(map_filtered[map_columns].rename(columns=map_labels), width="stretch", hide_index=True)
+        st.components.v1.iframe(MAP_EMBED_URL, height=560, scrolling=True)
+    st.link_button("Open in Google My Maps", MAP_EDIT_URL)
+    st.info("Map pins are not automatically matched to 5W rows: the source 5W export has no GPS coordinates or shared site ID.")
+    map_palikas = st.multiselect("Palika", PALIKAS, default=PALIKAS, key="map_palikas")
+    map_statuses = sorted(df["status"].dropna().unique().tolist())
+    map_selected_statuses = st.multiselect("Activity status", map_statuses, default=map_statuses, key="map_statuses")
+    map_rows = df[df["municipality"].isin(map_palikas) & df["status"].isin(map_selected_statuses)]
+    st.markdown("### Related 5W register")
+    st.dataframe(display_register(map_rows), width="stretch", height=420, hide_index=True)
+    with st.expander("Show every source 5W field"):
+        st.dataframe(display_register(map_rows, full=True, height=550), width="stretch", height=550, hide_index=True)
