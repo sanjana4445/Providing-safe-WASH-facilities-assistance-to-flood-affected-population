@@ -5,7 +5,7 @@ from datetime import datetime
 
 from data_processing import (
     FIVEW_COLUMNS, INDICATORS_DF, OUTPUT_COLORS, PALIKAS,
-    build_indicator_summary, build_monitoring_workbook, build_palika_output_summary,
+    build_activity_target_summary, build_indicator_summary, build_monitoring_workbook, build_palika_output_summary,
     build_palika_summary, load_5w,
 )
 
@@ -33,6 +33,7 @@ PAGE_OPTIONS = [
     "Beneficiary demographics", "Beneficiary explorer", "Project map",
 ]
 FIELD_LABELS = {
+    "source_row": "Source 5W row",
     "lead_agency": "Lead agency", "partner": "Implementing partner", "donor": "Donor",
     "province": "Province", "district": "District", "municipality": "Palika", "ward": "Ward",
     "holding_centre": "Holding centre / displacement site", "type_specific_location": "Specific location",
@@ -159,9 +160,9 @@ def display_register(frame, full=False, height=500):
     table = table.drop(columns=["output"]).rename(columns={
         **FIELD_LABELS, "indicator": "Mapped PD indicator", "mapped_output": "Mapped PD output",
     })
-    columns = [FIELD_LABELS[col] for col in SOURCE_COLUMNS] + ["Mapped PD output", "Mapped PD indicator"]
+    columns = ["Source 5W row"] + [FIELD_LABELS[col] for col in SOURCE_COLUMNS] + ["Mapped PD output", "Mapped PD indicator"]
     if not full:
-        columns = [FIELD_LABELS[col] for col in DETAIL_COLUMNS] + ["Mapped PD output", "Mapped PD indicator"]
+        columns = ["Source 5W row"] + [FIELD_LABELS[col] for col in DETAIL_COLUMNS] + ["Mapped PD output", "Mapped PD indicator"]
     return table.reindex(columns=columns)
 
 
@@ -247,25 +248,67 @@ if page == "Overview":
     })[["Output #", "Indicator", "Target", "Progress", "Remaining", "Progress (%)", "Unit", "Tracking"]]
     st.dataframe(tracker_view, width="stretch", hide_index=True, height=395)
 
-    st.markdown("### Progress by indicator")
-    chart_data = tracked.copy()
-    chart_data["Indicator"] = chart_data["indicator"]
-    chart_data["Progress (%)"] = chart_data["pct"]
-    chart_data["Output"] = chart_data["output"].map(lambda number: f"Output {int(number)}")
-    color_map = {f"Output {number}": color for number, color in OUTPUT_COLORS.items()}
-    overview_chart = px.bar(
-        chart_data.sort_values("Progress (%)"), x="Progress (%)", y="Indicator", orientation="h",
-        color="Output", color_discrete_map=color_map, text="Progress (%)",
-        labels={"Progress (%)": "Target progress", "Indicator": ""},
+    st.markdown("### Activity target progress")
+    st.caption("Each bar is one 5W activity target. Targets are not added together, so different units remain separate.")
+    target_outputs = sorted(INDICATORS_DF["output"].unique().tolist())
+    available_target_outputs = sorted(
+        build_activity_target_summary(df)["output"].dropna().astype(int).unique().tolist()
     )
-    overview_chart.add_vline(x=100, line_dash="dot", line_color=CHAYA_GREEN, annotation_text="Target")
-    overview_chart.update_traces(texttemplate="%{x:.0f}%", textposition="outside", cliponaxis=False)
-    overview_chart.update_layout(
-        height=410, barmode="group", plot_bgcolor="white", paper_bgcolor="white",
-        legend_title="", margin=dict(l=8, r=46, t=18, b=30),
+    default_target_output = available_target_outputs[0] if available_target_outputs else target_outputs[0]
+    selected_target_output = st.selectbox(
+        "Programme output", target_outputs,
+        index=target_outputs.index(default_target_output),
+        format_func=lambda number: output_names[number], key="overview_target_output",
     )
-    st.plotly_chart(overview_chart, width="stretch", key="overview_progress_chart")
-    st.caption("Chart includes the seven indicators tracked in 5W. Three coordination/feedback indicators require separate manual tracking.")
+    target_rows = build_activity_target_summary(df, selected_target_output)
+    progress_rows = target_rows.dropna(subset=["activity_reached"]).copy()
+    target_kpis = st.columns(3)
+    target_kpis[0].metric("Activity targets reported", f"{len(target_rows):,}")
+    target_kpis[1].metric("With progress reported", f"{len(progress_rows):,}")
+    target_kpis[2].metric(
+        "Targets reached", f"{int((progress_rows['activity_reached'] >= progress_rows['activity_target']).sum()):,}"
+    )
+
+    if len(progress_rows):
+        target_chart = px.bar(
+            progress_rows.sort_values("completion_pct"),
+            x="completion_pct", y="target_label", orientation="h", color="status",
+            color_discrete_map=STATUS_COLORS,
+            hover_data={
+                "activity_label": True, "activity": True, "municipality": True, "ward": True,
+                "activity_target": True, "activity_reached": True, "activity_unit": True,
+                "completion_pct": ":.1f", "status": True, "target_label": False,
+            },
+            labels={
+                "completion_pct": "Activity target reached (%)", "target_label": "",
+                "status": "Activity status", "activity_label": "5W indicator",
+                "activity_target": "Target", "activity_reached": "Reached", "activity_unit": "Unit",
+            },
+        )
+        target_chart.add_vline(x=100, line_dash="dot", line_color=NAVY, annotation_text="Target")
+        target_chart.update_traces(texttemplate="%{x:.0f}%", textposition="outside", cliponaxis=False)
+        target_chart.update_layout(
+            height=max(300, 78 * len(progress_rows)), plot_bgcolor="white", paper_bgcolor="white",
+            legend_title="", margin=dict(l=8, r=50, t=18, b=28),
+        )
+        st.plotly_chart(target_chart, width="stretch", key="overview_activity_target_chart")
+    else:
+        st.info("No activity targets are recorded for this output in the current 5W data.")
+
+    if len(target_rows):
+        target_table = target_rows[[
+            "source_row", "activity_label", "activity", "municipality", "ward",
+            "activity_target", "activity_reached", "activity_unit", "completion_pct", "status",
+        ]].rename(columns={
+            "source_row": "Source 5W row", "activity_label": "5W indicator", "activity": "Activity",
+            "municipality": "Palika", "ward": "Ward", "activity_target": "Activity target",
+            "activity_reached": "Activity reached", "activity_unit": "Unit",
+            "completion_pct": "Progress (%)", "status": "Status",
+        })
+        st.dataframe(target_table, width="stretch", hide_index=True)
+    unmapped_targets = build_activity_target_summary(df[df["output"].isna()])
+    if len(unmapped_targets):
+        st.warning(f"{len(unmapped_targets)} activity target row(s) are unmapped and excluded from output charts.")
 
 elif page == "Palika detail":
     st.title("Palika-wise 5W detail")
