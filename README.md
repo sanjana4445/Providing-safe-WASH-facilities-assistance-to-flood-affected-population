@@ -6,7 +6,7 @@ project sites for Chay-Ya Nepal and UNICEF.
 
 ## Dashboard views
 
-- **Overview:** five programme outputs, all ten targets, and one progress chart for the seven indicators tracked through 5W.
+- **Overview:** five programme outputs, the ten PD indicator targets, and an output-selected activity-target chart. Each bar compares one 5W Activity Target with its Activity Reached value; targets are not pooled across activities or units.
 - **Palika detail:** a four-Palika comparison chart, selected activity fields, and an expandable complete 5W register.
 - **Activities by output:** activity-type breakdowns with completed/ongoing status colors.
 - **Beneficiary demographics:** sex and age disaggregation, with elderly and disability counts shown separately.
@@ -73,6 +73,8 @@ Use **Download Excel monitoring pack** in the dashboard sidebar to export the cu
 - **Unmapped Activities:** rows that need mapping review.
 
 The export is generated from the workbook currently loaded in the dashboard, including an uploaded refresh. It does not modify the source UNICEF workbook.
+
+In the bundled 5W export, only three mapped activity rows have both an activity target and a reached value, all under Output 4. Other outputs display a no-target message until those fields are reported. An unmapped target row is flagged separately and is not included in an output chart.
 
 ## 5. Project site map
 
