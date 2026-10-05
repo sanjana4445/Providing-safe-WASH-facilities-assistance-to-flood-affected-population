@@ -151,11 +151,13 @@ def load_5w(path, sheet_name="5W_Data_Entry", header_row=6):
     ws = wb[sheet_name]
     headers = [ws.cell(row=header_row, column=c).value for c in range(1, ws.max_column + 1)]
     rows = []
+    source_rows = []
     for r in range(header_row + 1, ws.max_row + 1):
         vals = [ws.cell(row=r, column=c).value for c in range(1, len(headers) + 1)]
         if all(v in (None, "") for v in vals):
             continue
         rows.append(dict(zip(headers, vals)))
+        source_rows.append(r)
     df = pd.DataFrame(rows)
     df = df.rename(columns={k: v for k, v in FIVEW_COLUMNS.items() if k in df.columns})
     keep = list(FIVEW_COLUMNS.values())
@@ -163,6 +165,7 @@ def load_5w(path, sheet_name="5W_Data_Entry", header_row=6):
         if col not in df.columns:
             df[col] = np.nan
     df = df[["partner", "district", "municipality", "ward"] + [c for c in keep if c not in ("partner", "district", "municipality", "ward")]]
+    df["source_row"] = source_rows
     for c in ["people_reached", "hh_reached", "girls", "boys", "women", "men", "elderly_women", "elderly_men",
               "pwd", "people_targeted", "hh_targeted", "activity_target", "activity_reached",
               "relief_items_planned", "relief_items_distributed", "cash_transfer_value_per_unit",
@@ -235,6 +238,34 @@ def build_output_summary(indicator_summary):
             "color": OUTPUT_COLORS[out_num],
         })
     return pd.DataFrame(rows)
+
+
+def build_activity_target_summary(df, output=None):
+    """Return one row per reported 5W Activity Target, without summing unlike units."""
+    records = df.copy()
+    records["activity_target"] = pd.to_numeric(records["activity_target"], errors="coerce")
+    records["activity_reached"] = pd.to_numeric(records["activity_reached"], errors="coerce")
+    records = records[records["activity_target"] > 0].copy()
+    if output is not None:
+        records = records[records["output"] == output].copy()
+    records["completion_pct"] = records["activity_reached"] / records["activity_target"] * 100
+    records["activity_label"] = records["activity_indicator"].where(
+        records["activity_indicator"].notna() & records["activity_indicator"].astype(str).str.strip().ne(""),
+        records["activity"],
+    )
+    records["activity_unit"] = records["activity_indicator_unit"].where(
+        records["activity_indicator_unit"].notna() & records["activity_indicator_unit"].astype(str).str.strip().ne(""),
+        records["relief_item_unit"],
+    )
+    records["activity_unit"] = records["activity_unit"].fillna("Units")
+    if records.empty:
+        records["target_label"] = pd.Series(index=records.index, dtype="string")
+    else:
+        records["target_label"] = records.apply(
+            lambda row: f"Row {int(row['source_row'])} | {row['activity_label']} | {row['municipality']}",
+            axis=1,
+        )
+    return records
 
 
 def build_palika_output_summary(df):
@@ -338,6 +369,7 @@ def build_monitoring_workbook(df):
     register["record_progress"] = register.apply(progress_value, axis=1)
     register["output"] = register["output"].map(lambda value: f"Output {int(value)}" if pd.notna(value) else "Unmapped")
     register = register.rename(columns={
+        "source_row": "Source 5W row",
         "lead_agency": "Lead agency", "partner": "Implementing partner", "donor": "Donor",
         "province": "Province", "district": "District", "municipality": "Palika",
         "ward": "Ward", "holding_centre": "Holding centre / displacement site",
