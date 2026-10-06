@@ -205,6 +205,34 @@ def progress_value(row):
     return 0
 
 
+def target_value(row):
+    """Best available target figure for a row.
+
+    The source 5W workbook does not always populate the classic activity_target column;
+    it frequently stores the target in people_targeted, hh_targeted or
+    relief_items_planned instead. Use the first populated value as the row target,
+    so planning can be calculated from the sheet data rather than from blank fields.
+    """
+    for col in ["activity_target", "people_targeted", "hh_targeted", "relief_items_planned"]:
+        val = row.get(col)
+        if pd.notna(val) and str(val).strip() not in ("", "nan"):
+            val = pd.to_numeric(val, errors="coerce")
+            if pd.notna(val) and val > 0:
+                return float(val)
+    return 0
+
+
+def reached_value(row):
+    """Best available reached figure for a row, including the sheet's direct target/reach fields."""
+    for col in ["people_reached", "hh_reached", "activity_reached", "relief_items_distributed"]:
+        val = row.get(col)
+        if pd.notna(val) and str(val).strip() not in ("", "nan"):
+            val = pd.to_numeric(val, errors="coerce")
+            if pd.notna(val) and val > 0:
+                return float(val)
+    return 0
+
+
 def is_dedup_row(indicator):
     return indicator in DEDUP_INDICATORS
 
@@ -254,8 +282,8 @@ def build_output_summary(indicator_summary):
 def build_activity_target_summary(df, output=None):
     """Return one row per reported 5W Activity Target, without summing unlike units."""
     records = df.copy()
-    records["activity_target"] = pd.to_numeric(records["activity_target"], errors="coerce")
-    records["activity_reached"] = pd.to_numeric(records["activity_reached"], errors="coerce")
+    records["activity_target"] = records.apply(target_value, axis=1)
+    records["activity_reached"] = records.apply(reached_value, axis=1)
     records = records[records["activity_target"] > 0].copy()
     if output is not None:
         records = records[records["output"] == output].copy()
