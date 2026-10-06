@@ -86,6 +86,11 @@ ACTIVITY_MAP = {
 # demographic figures on every row. Summing across those rows would count the same people
 # once per item. Both are de-duplicated the same way: see build_indicator_summary.
 DEDUP_INDICATORS = {"People reached with critical WASH supplies", "People reached with hygiene promotion"}
+MANUAL_TRACKED_INDICATORS = {
+    "Cluster coordination meetings (district & Palika)",
+    "Field missions for needs & damage assessment",
+    "Functioning community feedback mechanisms",
+}
 SCHOOL_KEYWORDS = ["school", "hostel", "cfs", "child friendly", "health facility", "health post", "hcf", "learning"]
 
 
@@ -186,10 +191,16 @@ def load_5w(path, sheet_name="5W_Data_Entry", header_row=6):
 
 
 def progress_value(row):
-    """Best available 'reached' figure for a row: people reached, else activity reached (service/infra), else 0."""
+    """Best available 'reached' figure for a row.
+
+    In normal 5W records, beneficiary totals come from people_reached. For the manually
+    recorded activities that are missing from the source 5W workbook (meetings, visits,
+    and feedback mechanisms), the value is stored in activity_reached, so we should use
+    that when people_reached is absent.
+    """
     if pd.notna(row["people_reached"]) and row["people_reached"] > 0:
         return row["people_reached"]
-    if pd.notna(row["activity_reached"]) and row["activity_reached"] > 0 and row["indicator"] == "Water quality monitoring rounds (per ward)":
+    if pd.notna(row["activity_reached"]) and row["activity_reached"] > 0:
         return row["activity_reached"]
     return 0
 
@@ -221,7 +232,7 @@ def build_indicator_summary(df):
     summary["progress"] = summary["progress"].fillna(0)
     for ind, val in dedup_totals.items():
         summary.loc[summary["indicator"] == ind, "progress"] = val
-    summary.loc[~summary["tracked_in_5w"], "progress"] = np.nan
+    summary.loc[(~summary["tracked_in_5w"]) & (~summary["indicator"].isin(MANUAL_TRACKED_INDICATORS)), "progress"] = np.nan
     summary["pct"] = (summary["progress"] / summary["target"] * 100).round(1)
     return summary
 
