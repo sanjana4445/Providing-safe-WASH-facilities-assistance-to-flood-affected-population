@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from data_processing import (
@@ -29,6 +29,8 @@ PARTNER_SCOPE = ["Chay-Ya Nepal", "UNICEF"]
 MAP_ID = "1qtThPTqZuAuCMHl_Oqkq-0OW-ZFdjsU"
 MAP_EMBED_URL = f"https://www.google.com/maps/d/embed?mid={MAP_ID}"
 MAP_EDIT_URL = f"https://www.google.com/maps/d/u/0/edit?mid={MAP_ID}"
+PROJECT_START = date(2026, 9, 15)
+PROJECT_END = date(2026, 12, 31)
 MANUAL_INDICATORS = [
     {"output": 1, "indicator": "Cluster coordination meetings (district & Palika)", "unit": "Meetings"},
     {"output": 1, "indicator": "Field missions for needs & damage assessment", "unit": "Visits"},
@@ -40,6 +42,16 @@ PAGE_OPTIONS = [
     "Overview", "Palika detail", "Activities by output",
     "Beneficiary demographics", "Beneficiary explorer", "Manual activity entry", "Planning", "Project map",
 ]
+PAGE_TITLES = {
+    "Overview": "\U0001F4A7 WASH response overview",
+    "Palika detail": "\U0001F4CD Palika-wise activity",
+    "Activities by output": "\U0001F9ED Activities by programme output",
+    "Beneficiary demographics": "\U0001F465 Beneficiary demographics",
+    "Beneficiary explorer": "\U0001F50E Beneficiary explorer",
+    "Manual activity entry": "\u270D Manual activity entry",
+    "Planning": "\U0001F3AF Activity prioritization",
+    "Project map": "\U0001F5FA Project site map",
+}
 FIELD_LABELS = {
     "source_row": "Source 5W row",
     "lead_agency": "Lead agency", "partner": "Implementing partner", "donor": "Donor",
@@ -78,30 +90,46 @@ DETAIL_COLUMNS = [
 st.markdown(f"""
 <style>
 .stApp {{ background: {PAGE_BG}; color: #24373D; }}
-h1, h2, h3 {{ color: {NAVY}; letter-spacing: 0; }}
-.block-container {{ padding-top: 1.2rem; padding-bottom: 3rem; max-width: 1500px; }}
-div[data-testid="stSidebar"] {{ background: #EAF0EE; }}
+h1, h2, h3 {{ color: {NAVY}; letter-spacing: -0.025em; }}
+h1 {{ font-size: clamp(1.8rem, 3vw, 2.45rem); line-height: 1.15; margin-bottom: 0.35rem; }}
+h2 {{ font-size: 1.45rem; margin-top: 1.35rem; }}
+h3 {{ font-size: 1.1rem; }}
+.block-container {{ padding: 1.6rem 2.2rem 3rem; max-width: 1440px; }}
+div[data-testid="stSidebar"] {{ background: #EAF0EE; border-right: 1px solid #DCE6E2; }}
+div[data-testid="stSidebar"] h2 {{ font-size: 1.15rem; }}
+div[data-testid="stCaptionContainer"] {{ color: {MUTED}; }}
 div[data-testid="stMetric"] {{
-    background: #FFFFFF; border: 1px solid #DCE6E2; border-radius: 6px;
-    padding: 12px 15px; box-shadow: 0 2px 8px rgba(24,58,70,0.035);
+    background: linear-gradient(145deg, #FFFFFF 15%, #F8FBFA 100%);
+    border: 1px solid #DCE6E2; border-radius: 12px;
+    padding: 15px 17px; box-shadow: 0 4px 14px rgba(24,58,70,0.055);
 }}
 div[data-testid="stMetricValue"] {{ color: {NAVY}; }}
 div[data-testid="stRadio"] > label {{ display: none; }}
-div[data-testid="stRadio"] div[role="radiogroup"] {{ gap: 0.35rem; flex-wrap: wrap; }}
+div[data-testid="stRadio"] div[role="radiogroup"] {{ gap: 0.45rem; flex-wrap: wrap; }}
 div[data-testid="stRadio"] div[role="radiogroup"] label {{
-    border: 1px solid #DCE6E2; border-radius: 5px; background: #FFFFFF; padding: 0.35rem 0.7rem;
+    border: 1px solid #DCE6E2; border-radius: 999px; background: #FFFFFF;
+    padding: 0.4rem 0.85rem; transition: all 120ms ease;
 }}
 div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) {{
-    background: {NAVY}; border-color: {NAVY}; color: white;
+    background: {NAVY}; border-color: {NAVY}; color: #FFFFFF;
+    box-shadow: 0 3px 10px rgba(24,58,70,0.18);
+}}
+div[data-testid="stPlotlyChart"] {{ background: #FFFFFF; border: 1px solid #E2EAE7; border-radius: 12px; padding: 0.4rem; }}
+div[data-testid="stDataFrame"] {{ border: 1px solid #E2EAE7; border-radius: 10px; overflow: hidden; }}
+div[data-testid="stFileUploader"] {{ background: #FFFFFF; border: 1px dashed #B8CBC5; border-radius: 10px; padding: 0.4rem; }}
+div[data-testid="stButton"] button, div[data-testid="stDownloadButton"] button,
+div[data-testid="stFormSubmitButton"] button {{ border-radius: 9px; font-weight: 600; }}
+@media (max-width: 760px) {{
+    .block-container {{ padding: 1rem 1rem 2rem; }}
+    div[data-testid="stRadio"] div[role="radiogroup"] {{ gap: 0.35rem; }}
+    div[data-testid="stRadio"] div[role="radiogroup"] label {{ padding: 0.3rem 0.65rem; }}
 }}
 </style>
 """, unsafe_allow_html=True)
 
-st.sidebar.title("\U0001F4A7 Providing safe WASH facilities & assistance to flood affected population")
-st.sidebar.caption("Chay-Ya Nepal  |  UNICEF Nepal")
-st.sidebar.markdown("### Data source")
+st.sidebar.subheader("\U0001F4C2 Data upload")
 uploaded = st.sidebar.file_uploader(
-    "Upload latest 5W export", type=["xlsx"],
+    "5W Excel workbook", type=["xlsx"],
     help="The dashboard reads the bundled UNICEF workbook unless a newer export is uploaded.",
 )
 DEFAULT_PATH = "Rasuwa_-_UNICEF_WASH_NEPAL_5Ws_Data_Entry.xlsx"
@@ -171,29 +199,33 @@ palika_summary = build_palika_summary(df)
 unmapped = df[df["output"].isna()]
 
 st.sidebar.markdown("---")
-st.sidebar.metric("5W records in scope", f"{len(df):,}")
-st.sidebar.caption("Only UNICEF and Chay-Ya Nepal records are included.")
+st.sidebar.metric("\U0001F4CB 5W records in scope", f"{len(df):,}", help="Includes UNICEF and Chay-Ya Nepal records only.")
 if excluded_partner_rows:
     st.sidebar.caption(f"{excluded_partner_rows} record(s) from other partners excluded.")
 if len(unmapped):
     st.sidebar.warning(f"{len(unmapped)} activity row(s) are not mapped to an output; review the Excel export.")
-st.sidebar.caption(f"Loaded {datetime.now().strftime('%d %b %Y, %H:%M')}")
+today = datetime.now().date()
+if today < PROJECT_START:
+    countdown_label = "Days until project starts"
+    countdown_value = (PROJECT_START - today).days
+elif today <= PROJECT_END:
+    countdown_label = "Days until project ends"
+    countdown_value = (PROJECT_END - today).days
+else:
+    countdown_label = "Days since project ended"
+    countdown_value = (today - PROJECT_END).days
+st.sidebar.metric(f"\U0001F4C5 {countdown_label}", f"{countdown_value:,}")
+with st.sidebar.expander("Project & data details"):
+    st.caption(f"Project period: {PROJECT_START.strftime('%d %b %Y')} – {PROJECT_END.strftime('%d %b %Y')}")
+    st.caption(f"Dashboard refreshed: {datetime.now().strftime('%d %b %Y, %H:%M')}")
 st.sidebar.download_button(
-    "Download Excel monitoring pack",
+    "\U0001F4E5 Download monitoring pack",
     data=build_monitoring_workbook(df),
     file_name=f"rasuwa_wash_5w_monitoring_{datetime.now():%Y%m%d}.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     use_container_width=True,
 )
 
-st.markdown(
-    f"<div style='border-left:4px solid {UNICEF_BLUE}; padding-left:12px; margin:2px 0 8px;'>"
-    f"<span style='color:{UNICEF_BLUE};font-weight:700;'>UNICEF</span>"
-    f"<span style='color:#89979A;padding:0 8px;'>|</span>"
-    f"<span style='color:{CHAYA_GREEN};font-weight:700;'>Chay-Ya Nepal</span>"
-    "<span style='color:#64747A;padding-left:10px;'>Providing safe WASH facilities & assistance to flood affected population</span></div>",
-    unsafe_allow_html=True,
-)
 page = st.radio("Dashboard section", PAGE_OPTIONS, horizontal=True, label_visibility="collapsed")
 
 
@@ -252,8 +284,9 @@ def render_palika_bar(frame, measure, chart_key):
     st.plotly_chart(figure, width="stretch", key=chart_key)
 
 
+st.title(PAGE_TITLES[page])
+
 if page == "Overview":
-    st.title("Providing safe WASH facilities & assistance to flood affected population")
     st.caption("Five programme outputs · ten targets · UNICEF 5W activity progress")
     tracked = indicator_summary[indicator_summary["tracked_in_5w"]].copy()
     k1, k2, k3, k4 = st.columns(4)
@@ -361,7 +394,6 @@ if page == "Overview":
         st.warning(f"{len(unmapped_targets)} activity target row(s) are unmapped and excluded from output charts.")
 
 elif page == "Palika detail":
-    st.title("Palika-wise 5W detail")
     st.caption("Compare reported activity and reach across the four programme Palikas; open the register for every source field.")
     c1, c2, c3 = st.columns(3)
     selected_palikas = c1.multiselect("Palika", PALIKAS, default=PALIKAS, key="palika_filter")
@@ -400,7 +432,6 @@ elif page == "Palika detail":
         st.dataframe(display_register(filtered, full=True, height=550), width="stretch", height=550, hide_index=True)
 
 elif page == "Activities by output":
-    st.title("Activities by programme output")
     st.caption("Unpack each output into its reported activity types, status, and reach.")
     default_output = active_output_numbers[0] if active_output_numbers else output_numbers[0]
     selected_output = st.selectbox(
@@ -465,7 +496,6 @@ elif page == "Activities by output":
         st.dataframe(display_register(output_frame, full=True, height=550), width="stretch", height=550, hide_index=True)
 
 elif page == "Manual activity entry":
-    st.title("Manual activity entry")
     st.caption("Use this tab for the three indicators that are not present in the source 5W Excel file: coordination meetings, field missions, and functional feedback mechanisms.")
     form = st.form("manual_activity_form")
     with form:
@@ -518,18 +548,13 @@ elif page == "Manual activity entry":
         st.dataframe(display, width="stretch", hide_index=True)
 
 elif page == "Beneficiary demographics":
-    st.title("Beneficiary demographics")
     st.caption("Reported sex and age-group reach by Palika. Elderly and disability counts are shown separately to avoid double-counting overlapping groups.")
     demo_palikas = st.multiselect("Palika", PALIKAS, default=PALIKAS, key="demo_palikas")
     demo_statuses = sorted(df["status"].dropna().unique().tolist())
     demo_selected_status = st.multiselect("Activity status", demo_statuses, default=demo_statuses, key="demo_status")
     demographic_rows = df[df["municipality"].isin(demo_palikas) & df["status"].isin(demo_selected_status)]
-    demo_names = [
-        palika for palika in PALIKAS
-        if palika in demo_palikas or palika.replace(" Gaunpalika", "") in demo_palikas
-    ]
+    demo_names = [palika.replace(" Gaunpalika", "") for palika in PALIKAS if palika in demo_palikas]
     demo = palika_metric_table(demographic_rows).reindex(demo_names)
-    demo.index = demo.index.str.replace(" Gaunpalika", "", regex=False)
     demo_kpis = st.columns(4)
     demo_kpis[0].metric("Girls (<18)", f"{demo['girls'].sum():,.0f}")
     demo_kpis[1].metric("Boys (<18)", f"{demo['boys'].sum():,.0f}")
@@ -560,7 +585,6 @@ elif page == "Beneficiary demographics":
     st.dataframe(other_groups, width="stretch")
 
 elif page == "Beneficiary explorer":
-    st.title("Beneficiary explorer")
     st.caption("Select an output and activity to compare reported reach across Palikas.")
     output_choices = ["All outputs"] + output_numbers
     chosen_output = st.selectbox(
@@ -604,72 +628,84 @@ elif page == "Beneficiary explorer":
     st.dataframe(chart_data, width="stretch", hide_index=True)
 
 elif page == "Planning":
-    st.title("Activity prioritization")
-    st.caption("Prioritize the activities with the largest remaining gap to target and the lowest completion rate.")
-    planning_outputs = sorted(INDICATORS_DF["output"].unique().tolist())
-    selected_planning_output = st.selectbox(
-        "Programme output",
-        planning_outputs,
-        index=planning_outputs.index(default_target_output) if "default_target_output" in locals() else 0,
-        format_func=lambda number: output_names[number],
-        key="planning_output",
+    st.caption(
+        "All ten programme indicator targets are shown together. Activities with the lowest "
+        "completion rate are prioritized first; percentages make targets with different units comparable."
     )
-    planning_rows = build_activity_target_summary(df, selected_planning_output).copy()
-    if planning_rows.empty:
-        st.info("No activity targets are recorded for this output yet.")
-    else:
-        planning_rows["remaining_target"] = (planning_rows["activity_target"] - planning_rows["activity_reached"]).clip(lower=0)
-        planning_rows["completion_pct"] = planning_rows["completion_pct"].fillna(0)
-        planning_rows = planning_rows.sort_values(["remaining_target", "completion_pct"], ascending=[False, True]).reset_index(drop=True)
+    planning_rows = indicator_summary.copy()
+    planning_rows["pct"] = planning_rows["pct"].fillna(0)
+    planning_rows["remaining"] = (planning_rows["target"] - planning_rows["progress"].fillna(0)).clip(lower=0)
+    manual_indicator_names = {item["indicator"] for item in MANUAL_INDICATORS}
+    manual_records = set(df.loc[df["source_row"].eq("manual"), "indicator"].dropna())
+    planning_rows["tracking"] = planning_rows["indicator"].map(
+        lambda indicator: (
+            "Manual" if indicator in manual_records else "No manual update"
+        ) if indicator in manual_indicator_names else "5W"
+    )
+    planning_rows["priority"] = planning_rows["pct"].map(
+        lambda pct: "Achieved" if pct >= 100 else
+        "Monitor" if pct >= 50 else
+        "High" if pct >= 25 else "Urgent"
+    )
+    planning_rows = planning_rows.sort_values("pct", ascending=True, kind="stable").reset_index(drop=True)
+    planning_rows.insert(0, "priority_rank", range(1, len(planning_rows) + 1))
 
-        k1, k2, k3 = st.columns(3)
-        k1.metric("Activities in queue", f"{len(planning_rows):,}")
-        k2.metric("Largest remaining gap", f"{planning_rows['remaining_target'].max():,.0f}")
-        k3.metric("Average completion", f"{planning_rows['completion_pct'].mean():,.0f}%")
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Programme targets", f"{len(planning_rows)} / 10")
+    k2.metric("With progress reported", f"{int((planning_rows['progress'].fillna(0) > 0).sum())} / 10")
+    k3.metric("Indicators on target", f"{int((planning_rows['pct'] >= 100).sum())} / 10")
 
-        priority_view = planning_rows[[
-            "target_label", "activity_label", "municipality", "activity_target",
-            "activity_reached", "remaining_target", "completion_pct", "status"
-        ]].copy()
-        priority_view = priority_view.rename(columns={
-            "target_label": "Activity",
-            "activity_label": "5W indicator",
-            "municipality": "Palika",
-            "activity_target": "Target",
-            "activity_reached": "Reached",
-            "remaining_target": "Remaining to target",
-            "completion_pct": "Completion (%)",
-            "status": "Status",
-        })
-        priority_view["Activity"] = priority_view["Activity"].str.replace("Row \\d+ \\| \\|?", "", regex=True)
+    planning_chart_data = planning_rows.copy()
+    planning_chart_data["chart_pct"] = planning_chart_data["pct"].clip(lower=0, upper=100)
+    priority_chart = px.bar(
+        planning_chart_data,
+        x="chart_pct",
+        y="indicator",
+        orientation="h",
+        color="priority",
+        color_discrete_map={
+            "Urgent": "#B5473C", "High": "#D28B27",
+            "Monitor": "#00AEEF", "Achieved": COMPLETED_GREEN,
+        },
+        custom_data=["progress", "target", "remaining", "unit", "pct", "tracking"],
+        labels={"chart_pct": "Target completion (%)", "indicator": "", "priority": "Priority"},
+    )
+    priority_chart.add_vline(x=100, line_dash="dot", line_color=NAVY, annotation_text="Target")
+    priority_chart.update_traces(
+        text=planning_chart_data["pct"].map(lambda pct: f"{pct:.1f}%"),
+        textposition="outside", cliponaxis=False,
+        hovertemplate=(
+            "%{y}<br>Progress: %{customdata[0]:,.0f} %{customdata[3]}"
+            "<br>Target: %{customdata[1]:,.0f} %{customdata[3]}"
+            "<br>Remaining: %{customdata[2]:,.0f} %{customdata[3]}"
+            "<br>Completion: %{customdata[4]:.1f}%"
+            "<br>Tracking: %{customdata[5]}<extra></extra>"
+        ),
+    )
+    priority_chart.update_layout(
+        height=520, xaxis=dict(range=[0, 115], title="Target completion (%)"),
+        yaxis=dict(autorange="reversed"),
+        plot_bgcolor="white", paper_bgcolor="white", legend_title="",
+        margin=dict(l=8, r=40, t=20, b=30),
+    )
+    st.plotly_chart(priority_chart, width="stretch", key="priority_chart")
 
-        plot_data = priority_view.head(10).copy()
-        plot_data = plot_data.sort_values("Remaining to target", ascending=True)
-        priority_chart = px.bar(
-            plot_data,
-            x="Remaining to target",
-            y="Activity",
-            orientation="h",
-            color="Status",
-            color_discrete_map=STATUS_COLORS,
-            text="Remaining to target",
-            labels={"Activity": "", "Remaining to target": "Remaining to target"},
-        )
-        priority_chart.update_traces(texttemplate="%{x:,.0f}", textposition="outside", cliponaxis=False)
-        priority_chart.update_layout(
-            height=max(320, 42 * len(plot_data)),
-            plot_bgcolor="white",
-            paper_bgcolor="white",
-            showlegend=False,
-            margin=dict(l=10, r=30, t=14, b=24),
-        )
-        st.plotly_chart(priority_chart, width="stretch", key="priority_chart")
-
-        st.markdown("### Priority list")
-        st.dataframe(priority_view, width="stretch", hide_index=True)
+    st.markdown("### Ten-target activity board")
+    priority_view = planning_rows[[
+        "priority_rank", "output_label", "indicator", "target", "progress", "remaining", "pct", "unit", "tracking", "priority",
+    ]].rename(columns={
+        "priority_rank": "Priority rank", "output_label": "Programme output", "indicator": "Activity / indicator", "target": "Target",
+        "progress": "Progress achieved", "remaining": "Remaining", "pct": "Completion (%)",
+        "unit": "Unit", "tracking": "Tracking", "priority": "Priority",
+    })
+    st.dataframe(priority_view, width="stretch", hide_index=True)
+    st.caption(
+        "Priority is ranked by completion percentage (lowest first), not by raw remaining count, "
+        "because the targets use different units. Manually tracked indicators without an entry "
+        "are treated as zero progress and marked “No manual update”."
+    )
 
 else:
-    st.title("Project site map")
     st.caption("Shared Google My Maps layer and the related UNICEF / Chay-Ya activity records.")
     if hasattr(st, "iframe"):
         st.iframe(MAP_EMBED_URL, height=560)
