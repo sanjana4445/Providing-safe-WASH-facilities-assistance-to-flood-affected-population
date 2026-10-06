@@ -10,7 +10,8 @@ from data_processing import (
     build_palika_summary, load_5w,
 )
 
-st.set_page_config(page_title="Providing safe WASH facilities & assistance to flood affected population", page_icon="\U0001F4A7", layout="wide")
+PROJECT_TITLE = "Providing safe WASH facilities & assistance to flood-affected population"
+st.set_page_config(page_title=PROJECT_TITLE, page_icon="\U0001F4A7", layout="wide")
 
 UNICEF_BLUE = "#009FE3"
 CHAYA_GREEN = "#26734D"
@@ -94,7 +95,8 @@ h1, h2, h3 {{ color: {NAVY}; letter-spacing: -0.025em; }}
 h1 {{ font-size: clamp(1.8rem, 3vw, 2.45rem); line-height: 1.15; margin-bottom: 0.35rem; }}
 h2 {{ font-size: 1.45rem; margin-top: 1.35rem; }}
 h3 {{ font-size: 1.1rem; }}
-.block-container {{ padding: 1.6rem 2.2rem 3rem; max-width: 1440px; }}
+.project-title {{ color: {NAVY}; font-size: clamp(1.25rem, 2.2vw, 1.8rem); font-weight: 700; line-height: 1.2; margin-bottom: 0.85rem; }}
+.block-container {{ padding: 2.5rem 2.2rem 3rem; max-width: 1440px; }}
 div[data-testid="stSidebar"] {{ background: #EAF0EE; border-right: 1px solid #DCE6E2; }}
 div[data-testid="stSidebar"] h2 {{ font-size: 1.15rem; }}
 div[data-testid="stCaptionContainer"] {{ color: {MUTED}; }}
@@ -105,10 +107,10 @@ div[data-testid="stMetric"] {{
 }}
 div[data-testid="stMetricValue"] {{ color: {NAVY}; }}
 div[data-testid="stRadio"] > label {{ display: none; }}
-div[data-testid="stRadio"] div[role="radiogroup"] {{ gap: 0.45rem; flex-wrap: wrap; }}
+div[data-testid="stRadio"] div[role="radiogroup"] {{ gap: 0.45rem; row-gap: 0.45rem; flex-wrap: wrap; }}
 div[data-testid="stRadio"] div[role="radiogroup"] label {{
     border: 1px solid #DCE6E2; border-radius: 999px; background: #FFFFFF;
-    padding: 0.4rem 0.85rem; transition: all 120ms ease;
+    padding: 0.4rem 0.85rem; white-space: nowrap; transition: all 120ms ease;
 }}
 div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) {{
     background: {NAVY}; border-color: {NAVY}; color: #FFFFFF;
@@ -120,7 +122,7 @@ div[data-testid="stFileUploader"] {{ background: #FFFFFF; border: 1px dashed #B8
 div[data-testid="stButton"] button, div[data-testid="stDownloadButton"] button,
 div[data-testid="stFormSubmitButton"] button {{ border-radius: 9px; font-weight: 600; }}
 @media (max-width: 760px) {{
-    .block-container {{ padding: 1rem 1rem 2rem; }}
+    .block-container {{ padding: 2.5rem 1rem 2rem; }}
     div[data-testid="stRadio"] div[role="radiogroup"] {{ gap: 0.35rem; }}
     div[data-testid="stRadio"] div[role="radiogroup"] label {{ padding: 0.3rem 0.65rem; }}
 }}
@@ -224,6 +226,11 @@ st.sidebar.download_button(
     file_name=f"rasuwa_wash_5w_monitoring_{datetime.now():%Y%m%d}.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     use_container_width=True,
+)
+
+st.markdown(
+    f"<div class='project-title'>{PROJECT_TITLE}</div>",
+    unsafe_allow_html=True,
 )
 
 page = st.radio("Dashboard section", PAGE_OPTIONS, horizontal=True, label_visibility="collapsed")
