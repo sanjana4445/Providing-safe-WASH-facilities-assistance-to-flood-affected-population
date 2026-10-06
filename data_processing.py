@@ -5,6 +5,7 @@ Reads the UNICEF 5W export and the Chay-Ya monitoring matrix, maps every
 clean, aggregated tables for the Streamlit app to display.
 """
 from io import BytesIO
+import re
 
 import pandas as pd
 import numpy as np
@@ -42,6 +43,22 @@ OUTPUT_COLORS = {
     1: "#58727F", 2: "#00AEEF", 3: "#D28B27", 4: "#E4775A", 5: "#26734D",
 }
 PALIKAS = ["Gosaikunda Gaunpalika", "Uttargaya Gaunpalika", "Kalika Gaunpalika", "Aamachhodingmo Gaunpalika"]
+_PALIKA_SUFFIXES = {"gaunpalika", "gaupalika", "gaun", "gau", "palika", "rural", "municipality"}
+_PALIKA_KEYS = {
+    "".join(word for word in palika.casefold().split() if word not in _PALIKA_SUFFIXES): palika
+    for palika in PALIKAS
+}
+
+
+def normalize_palika_name(value):
+    """Map common municipality-name variants to the dashboard's canonical labels."""
+    if pd.isna(value):
+        return np.nan
+
+    name = re.sub(r"[^a-z0-9]+", " ", str(value).casefold()).strip()
+    words = [word for word in name.split() if word not in _PALIKA_SUFFIXES]
+    key = "".join(words)
+    return _PALIKA_KEYS.get(key, str(value).strip())
 
 # ----------------------------------------------------------------------
 # 2. Activity -> (Output, Indicator) mapping.
@@ -176,7 +193,7 @@ def load_5w(path, sheet_name="5W_Data_Entry", header_row=6):
               "relief_items_planned", "relief_items_distributed", "cash_transfer_value_per_unit",
               "total_expected_cash_transfer", "total_disbursed_amount"]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
-    df["municipality"] = df["municipality"].astype(str).str.strip()
+    df["municipality"] = df["municipality"].map(normalize_palika_name)
     # Source sheet mixes real dates, typed text, and blanks in the same column - coerce to a
     # single consistent type so later display/serialization doesn't choke on the mix.
     for c in ["start_date", "end_date"]:
@@ -352,7 +369,7 @@ def build_palika_summary(df):
     df = df.copy()
     df["progress"] = df.apply(progress_value, axis=1)
     df["dedup"] = df["indicator"].apply(is_dedup_row)
-    df["municipality"] = df["municipality"].astype(str).str.strip().replace({"nan": np.nan})
+    df["municipality"] = df["municipality"].map(normalize_palika_name)
     rows = []
     for palika in PALIKAS:
         sub = df[df["municipality"] == palika]
