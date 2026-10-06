@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
+from pathlib import Path
 
 from data_processing import (
     FIVEW_COLUMNS, INDICATORS_DF, OUTPUT_COLORS, PALIKAS,
@@ -9,7 +10,7 @@ from data_processing import (
     build_palika_summary, load_5w,
 )
 
-st.set_page_config(page_title="Rasuwa WASH Response", page_icon="\U0001F4A7", layout="wide")
+st.set_page_config(page_title="Providing safe WASH facilities & assistance to flood affected population", page_icon="\U0001F4A7", layout="wide")
 
 UNICEF_BLUE = "#009FE3"
 CHAYA_GREEN = "#26734D"
@@ -28,9 +29,16 @@ PARTNER_SCOPE = ["Chay-Ya Nepal", "UNICEF"]
 MAP_ID = "1qtThPTqZuAuCMHl_Oqkq-0OW-ZFdjsU"
 MAP_EMBED_URL = f"https://www.google.com/maps/d/embed?mid={MAP_ID}"
 MAP_EDIT_URL = f"https://www.google.com/maps/d/u/0/edit?mid={MAP_ID}"
+MANUAL_INDICATORS = [
+    {"output": 1, "indicator": "Cluster coordination meetings (district & Palika)", "unit": "Meetings"},
+    {"output": 1, "indicator": "Field missions for needs & damage assessment", "unit": "Visits"},
+    {"output": 5, "indicator": "Functioning community feedback mechanisms", "unit": "Mechanisms"},
+]
+MANUAL_DATA_PATH = Path(__file__).with_name("manual_entries.csv")
+MANUAL_GPS_DATA_PATH = Path(__file__).with_name("manual_gps_locations.csv")
 PAGE_OPTIONS = [
     "Overview", "Palika detail", "Activities by output",
-    "Beneficiary demographics", "Beneficiary explorer", "Project map",
+    "Beneficiary demographics", "Beneficiary explorer", "Manual activity entry", "Planning", "Project map",
 ]
 FIELD_LABELS = {
     "source_row": "Source 5W row",
@@ -89,7 +97,7 @@ div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) {{
 </style>
 """, unsafe_allow_html=True)
 
-st.sidebar.title("\U0001F4A7 Rasuwa WASH")
+st.sidebar.title("\U0001F4A7 Providing safe WASH facilities & assistance to flood affected population")
 st.sidebar.caption("Chay-Ya Nepal  |  UNICEF Nepal")
 st.sidebar.markdown("### Data source")
 uploaded = st.sidebar.file_uploader(
@@ -97,6 +105,30 @@ uploaded = st.sidebar.file_uploader(
     help="The dashboard reads the bundled UNICEF workbook unless a newer export is uploaded.",
 )
 DEFAULT_PATH = "Rasuwa_-_UNICEF_WASH_NEPAL_5Ws_Data_Entry.xlsx"
+
+
+def load_manual_entries():
+    if not MANUAL_DATA_PATH.exists():
+        return pd.DataFrame(columns=["output", "indicator", "activity", "partner", "district", "municipality", "status", "activity_reached", "notes", "entry_date"])
+    try:
+        manual = pd.read_csv(MANUAL_DATA_PATH)
+        if manual.empty:
+            return pd.DataFrame(columns=["output", "indicator", "activity", "partner", "district", "municipality", "status", "activity_reached", "notes", "entry_date"])
+        return manual
+    except Exception:
+        return pd.DataFrame(columns=["output", "indicator", "activity", "partner", "district", "municipality", "status", "activity_reached", "notes", "entry_date"])
+
+
+def load_manual_gps_locations():
+    if not MANUAL_GPS_DATA_PATH.exists():
+        return pd.DataFrame(columns=["activity", "site_name", "palika", "district", "latitude", "longitude", "notes", "entry_date"])
+    try:
+        manual = pd.read_csv(MANUAL_GPS_DATA_PATH)
+        if manual.empty:
+            return pd.DataFrame(columns=["activity", "site_name", "palika", "district", "latitude", "longitude", "notes", "entry_date"])
+        return manual
+    except Exception:
+        return pd.DataFrame(columns=["activity", "site_name", "palika", "district", "latitude", "longitude", "notes", "entry_date"])
 
 
 @st.cache_data(show_spinner="Reading the 5W workbook…")
@@ -109,6 +141,19 @@ try:
 except Exception as exc:
     st.error(f"Could not read the 5W workbook: {exc}")
     st.stop()
+
+manual_entries = load_manual_entries()
+if not manual_entries.empty:
+    manual_rows = manual_entries.copy()
+    manual_rows["output"] = pd.to_numeric(manual_rows["output"], errors="coerce")
+    manual_rows["activity_reached"] = pd.to_numeric(manual_rows["activity_reached"], errors="coerce")
+    manual_rows["source_row"] = "manual"
+    manual_rows["activity"] = manual_rows.get("activity", manual_rows["indicator"])
+    manual_rows["district"] = manual_rows.get("district", "Rasuwa")
+    manual_rows["municipality"] = manual_rows.get("municipality", "")
+    manual_rows["status"] = manual_rows.get("status", "Completed")
+    manual_rows["partner"] = manual_rows.get("partner", "UNICEF")
+    df = pd.concat([df, manual_rows], ignore_index=True, sort=False)
 
 normalized_partners = (
     df["partner"].astype("string").str.casefold()
@@ -146,7 +191,7 @@ st.markdown(
     f"<span style='color:{UNICEF_BLUE};font-weight:700;'>UNICEF</span>"
     f"<span style='color:#89979A;padding:0 8px;'>|</span>"
     f"<span style='color:{CHAYA_GREEN};font-weight:700;'>Chay-Ya Nepal</span>"
-    "<span style='color:#64747A;padding-left:10px;'>Rasuwa WASH response monitoring</span></div>",
+    "<span style='color:#64747A;padding-left:10px;'>Providing safe WASH facilities & assistance to flood affected population</span></div>",
     unsafe_allow_html=True,
 )
 page = st.radio("Dashboard section", PAGE_OPTIONS, horizontal=True, label_visibility="collapsed")
@@ -234,8 +279,13 @@ if page == "Overview":
 
     st.markdown("### Ten-indicator target tracker")
     tracker = indicator_summary.copy()
+    manual_indicator_names = {
+        "Cluster coordination meetings (district & Palika)",
+        "Field missions for needs & damage assessment",
+        "Functioning community feedback mechanisms",
+    }
     tracker["Remaining"] = (tracker["target"] - tracker["progress"]).clip(lower=0)
-    tracker["Progress (%)"] = tracker["pct"].where(tracker["tracked_in_5w"])
+    tracker["Progress (%)"] = tracker["pct"].where(tracker["tracked_in_5w"] | tracker["indicator"].isin(manual_indicator_names))
     tracker["Tracking"] = tracker.apply(
         lambda row: "Manual" if not row["tracked_in_5w"] else (
             "Target reached" if row["progress"] >= row["target"] else
@@ -414,6 +464,59 @@ elif page == "Activities by output":
     with st.expander("Show every source 5W field"):
         st.dataframe(display_register(output_frame, full=True, height=550), width="stretch", height=550, hide_index=True)
 
+elif page == "Manual activity entry":
+    st.title("Manual activity entry")
+    st.caption("Use this tab for the three indicators that are not present in the source 5W Excel file: coordination meetings, field missions, and functional feedback mechanisms.")
+    form = st.form("manual_activity_form")
+    with form:
+        col1, col2, col3 = st.columns(3)
+        indicator_name = col1.selectbox(
+            "Indicator",
+            [item["indicator"] for item in MANUAL_INDICATORS],
+            key="manual_indicator",
+        )
+        partner_value = col2.selectbox("Partner", ["UNICEF", "Chay-Ya Nepal"], index=0)
+        selected_output = next(item["output"] for item in MANUAL_INDICATORS if item["indicator"] == indicator_name)
+        municipality = col3.selectbox("Palika", PALIKAS, index=0)
+        c4, c5, c6 = st.columns(3)
+        district = c4.text_input("District", value="Rasuwa")
+        activity_value = c5.number_input("Recorded value", min_value=0, step=1, value=0)
+        status = c6.selectbox("Status", ["Completed", "Ongoing"], index=0)
+        notes = st.text_area("Notes", value="")
+        submitted = st.form_submit_button("Save manual record")
+
+    if submitted:
+        indicator_row = next(item for item in MANUAL_INDICATORS if item["indicator"] == indicator_name)
+        new_row = {
+            "output": indicator_row["output"],
+            "indicator": indicator_row["indicator"],
+            "activity": indicator_row["indicator"],
+            "partner": partner_value,
+            "district": district,
+            "municipality": municipality,
+            "status": status,
+            "activity_reached": float(activity_value),
+            "notes": notes,
+            "entry_date": datetime.now().strftime("%Y-%m-%d"),
+            "lead_agency": "",
+            "source_row": "manual",
+        }
+        existing = load_manual_entries()
+        rows = [] if existing.empty else existing.to_dict("records")
+        rows.append(new_row)
+        pd.DataFrame(rows).to_csv(MANUAL_DATA_PATH, index=False)
+        st.success(f"Saved manual record for {indicator_name}.")
+        st.rerun()
+
+    st.markdown("### Saved manual records")
+    saved_rows = load_manual_entries()
+    if saved_rows.empty:
+        st.info("No manual records saved yet. Add the missing activity values above and they will be included in the dashboard totals.")
+    else:
+        display = saved_rows.copy()
+        display["output"] = display["output"].apply(lambda x: f"Output {int(float(x))}" if pd.notna(x) and str(x).strip() not in ("", "nan") else "")
+        st.dataframe(display, width="stretch", hide_index=True)
+
 elif page == "Beneficiary demographics":
     st.title("Beneficiary demographics")
     st.caption("Reported sex and age-group reach by Palika. Elderly and disability counts are shown separately to avoid double-counting overlapping groups.")
@@ -421,9 +524,11 @@ elif page == "Beneficiary demographics":
     demo_statuses = sorted(df["status"].dropna().unique().tolist())
     demo_selected_status = st.multiselect("Activity status", demo_statuses, default=demo_statuses, key="demo_status")
     demographic_rows = df[df["municipality"].isin(demo_palikas) & df["status"].isin(demo_selected_status)]
-    demo = palika_metric_table(demographic_rows).reindex(
-        [palika for palika in PALIKAS if palika.replace(" Gaunpalika", "") in demo_palikas]
-    )
+    demo_names = [
+        palika for palika in PALIKAS
+        if palika in demo_palikas or palika.replace(" Gaunpalika", "") in demo_palikas
+    ]
+    demo = palika_metric_table(demographic_rows).reindex(demo_names)
     demo.index = demo.index.str.replace(" Gaunpalika", "", regex=False)
     demo_kpis = st.columns(4)
     demo_kpis[0].metric("Girls (<18)", f"{demo['girls'].sum():,.0f}")
@@ -498,6 +603,71 @@ elif page == "Beneficiary explorer":
     st.caption("Reach follows the dashboard's deduplication rules for hygiene promotion and critical supplies.")
     st.dataframe(chart_data, width="stretch", hide_index=True)
 
+elif page == "Planning":
+    st.title("Activity prioritization")
+    st.caption("Prioritize the activities with the largest remaining gap to target and the lowest completion rate.")
+    planning_outputs = sorted(INDICATORS_DF["output"].unique().tolist())
+    selected_planning_output = st.selectbox(
+        "Programme output",
+        planning_outputs,
+        index=planning_outputs.index(default_target_output) if "default_target_output" in locals() else 0,
+        format_func=lambda number: output_names[number],
+        key="planning_output",
+    )
+    planning_rows = build_activity_target_summary(df, selected_planning_output).copy()
+    if planning_rows.empty:
+        st.info("No activity targets are recorded for this output yet.")
+    else:
+        planning_rows["remaining_target"] = (planning_rows["activity_target"] - planning_rows["activity_reached"]).clip(lower=0)
+        planning_rows["completion_pct"] = planning_rows["completion_pct"].fillna(0)
+        planning_rows = planning_rows.sort_values(["remaining_target", "completion_pct"], ascending=[False, True]).reset_index(drop=True)
+
+        k1, k2, k3 = st.columns(3)
+        k1.metric("Activities in queue", f"{len(planning_rows):,}")
+        k2.metric("Largest remaining gap", f"{planning_rows['remaining_target'].max():,.0f}")
+        k3.metric("Average completion", f"{planning_rows['completion_pct'].mean():,.0f}%")
+
+        priority_view = planning_rows[[
+            "target_label", "activity_label", "municipality", "activity_target",
+            "activity_reached", "remaining_target", "completion_pct", "status"
+        ]].copy()
+        priority_view = priority_view.rename(columns={
+            "target_label": "Activity",
+            "activity_label": "5W indicator",
+            "municipality": "Palika",
+            "activity_target": "Target",
+            "activity_reached": "Reached",
+            "remaining_target": "Remaining to target",
+            "completion_pct": "Completion (%)",
+            "status": "Status",
+        })
+        priority_view["Activity"] = priority_view["Activity"].str.replace("Row \\d+ \\| \\|?", "", regex=True)
+
+        plot_data = priority_view.head(10).copy()
+        plot_data = plot_data.sort_values("Remaining to target", ascending=True)
+        priority_chart = px.bar(
+            plot_data,
+            x="Remaining to target",
+            y="Activity",
+            orientation="h",
+            color="Status",
+            color_discrete_map=STATUS_COLORS,
+            text="Remaining to target",
+            labels={"Activity": "", "Remaining to target": "Remaining to target"},
+        )
+        priority_chart.update_traces(texttemplate="%{x:,.0f}", textposition="outside", cliponaxis=False)
+        priority_chart.update_layout(
+            height=max(320, 42 * len(plot_data)),
+            plot_bgcolor="white",
+            paper_bgcolor="white",
+            showlegend=False,
+            margin=dict(l=10, r=30, t=14, b=24),
+        )
+        st.plotly_chart(priority_chart, width="stretch", key="priority_chart")
+
+        st.markdown("### Priority list")
+        st.dataframe(priority_view, width="stretch", hide_index=True)
+
 else:
     st.title("Project site map")
     st.caption("Shared Google My Maps layer and the related UNICEF / Chay-Ya activity records.")
@@ -507,6 +677,62 @@ else:
         st.components.v1.iframe(MAP_EMBED_URL, height=560, scrolling=True)
     st.link_button("Open in Google My Maps", MAP_EDIT_URL)
     st.info("Map pins are not automatically matched to 5W rows: the source 5W export has no GPS coordinates or shared site ID.")
+
+    st.markdown("### Add manual GPS location by activity")
+    gps_form = st.form("manual_gps_form")
+    with gps_form:
+        col1, col2, col3 = st.columns(3)
+        activity_choice = col1.selectbox(
+            "Activity",
+            sorted(df["activity"].dropna().unique().tolist()),
+            key="manual_gps_activity",
+        )
+        site_name = col2.text_input("Site / place name", value="")
+        palika_choice = col3.selectbox("Palika", PALIKAS, index=0)
+        c4, c5, c6 = st.columns(3)
+        district_value = c4.text_input("District", value="Rasuwa")
+        latitude = c5.number_input("Latitude", min_value=-90.0, max_value=90.0, value=28.0, step=0.0001, format="%.6f")
+        longitude = c6.number_input("Longitude", min_value=-180.0, max_value=180.0, value=85.0, step=0.0001, format="%.6f")
+        notes = st.text_area("Notes", value="")
+        saved_gps = st.form_submit_button("Save GPS location")
+
+    if saved_gps:
+        if site_name.strip() == "":
+            st.warning("Please enter a site or place name before saving the GPS location.")
+        else:
+            manual_locations = load_manual_gps_locations()
+            record = {
+                "activity": activity_choice,
+                "site_name": site_name.strip(),
+                "palika": palika_choice,
+                "district": district_value.strip() or "Rasuwa",
+                "latitude": float(latitude),
+                "longitude": float(longitude),
+                "notes": notes,
+                "entry_date": datetime.now().strftime("%Y-%m-%d"),
+            }
+            if manual_locations.empty:
+                saved = pd.DataFrame([record])
+            else:
+                saved = pd.concat([manual_locations, pd.DataFrame([record])], ignore_index=True)
+            saved.to_csv(MANUAL_GPS_DATA_PATH, index=False)
+            st.success("GPS location saved for this activity and site.")
+            st.rerun()
+
+    manual_locations = load_manual_gps_locations()
+    if manual_locations.empty:
+        st.info("No manual GPS locations saved yet. Add a site with coordinates here to track the activity locations manually.")
+    else:
+        location_table = manual_locations.copy()
+        location_table["coordinates"] = location_table.apply(
+            lambda row: f"{row['latitude']}, {row['longitude']}", axis=1
+        )
+        st.dataframe(
+            location_table[["activity", "site_name", "palika", "district", "coordinates", "notes", "entry_date"]],
+            width="stretch",
+            hide_index=True,
+        )
+
     map_palikas = st.multiselect("Palika", PALIKAS, default=PALIKAS, key="map_palikas")
     map_statuses = sorted(df["status"].dropna().unique().tolist())
     map_selected_statuses = st.multiselect("Activity status", map_statuses, default=map_statuses, key="map_statuses")
