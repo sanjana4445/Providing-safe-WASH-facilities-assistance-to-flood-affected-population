@@ -1,6 +1,6 @@
-# Rasuwa WASH Response Dashboard
+# Providing safe WASH facilities & assistance to flood-affected population
 
-A Streamlit dashboard that reads UNICEF's 5W tool export and tracks progress against
+The Rasuwa WASH response dashboard reads UNICEF's 5W tool export and tracks progress against
 the Programme Document's 5 Outputs / 10 indicators, activity records, and georeferenced
 project sites for Chay-Ya Nepal and UNICEF.
 
