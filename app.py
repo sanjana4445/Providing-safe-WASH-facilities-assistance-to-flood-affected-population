@@ -134,7 +134,7 @@ uploaded = st.sidebar.file_uploader(
     "5W Excel workbook", type=["xlsx"],
     help="The dashboard reads the bundled UNICEF workbook unless a newer export is uploaded.",
 )
-DEFAULT_PATH = "Rasuwa_-_UNICEF_WASH_NEPAL_5Ws_Data_Entry.xlsx"
+DEFAULT_PATH = Path(__file__).with_name("Rasuwa - UNICEF_WASH_NEPAL_5Ws_Data_Entry.xlsx")
 
 
 def load_manual_entries():
@@ -165,9 +165,26 @@ def load_manual_gps_locations():
 def get_data(file_bytes_or_path):
     return load_5w(file_bytes_or_path)
 
+if uploaded is not None:
+    workbook_source = uploaded
+elif DEFAULT_PATH.is_file():
+    workbook_source = DEFAULT_PATH
+else:
+    workbook_candidates = sorted(
+        path for path in Path(__file__).parent.glob("*.xlsx")
+        if path.is_file()
+    )
+    if len(workbook_candidates) == 1:
+        workbook_source = workbook_candidates[0]
+    elif len(workbook_candidates) > 1:
+        st.error("The default 5W workbook is missing and multiple Excel files are available. Upload the correct 5W workbook using the sidebar.")
+        st.stop()
+    else:
+        st.info("Upload the updated 5W Excel workbook using the sidebar to load dashboard data.")
+        st.stop()
 
 try:
-    df = get_data(uploaded if uploaded is not None else DEFAULT_PATH)
+    df = get_data(workbook_source)
 except Exception as exc:
     st.error(f"Could not read the 5W workbook: {exc}")
     st.stop()
