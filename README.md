@@ -21,7 +21,7 @@ project sites for Chay-Ya Nepal and UNICEF.
 |---|---|
 | `app.py` | The dashboard itself (Streamlit UI) |
 | `data_processing.py` | Reads meaningful 5W fields, maps activity rows to an Output/Indicator, and computes progress |
-| `Rasuwa_-_UNICEF_WASH_NEPAL_5Ws_Data_Entry.xlsx` | The data the dashboard reads by default |
+| `Rasuwa - UNICEF_WASH_NEPAL_5Ws_Data_Entry.xlsx` | The data the dashboard reads by default |
 | `requirements.txt` | Python packages needed |
 | `.streamlit/config.toml` | Colour theme |
 
@@ -36,6 +36,17 @@ streamlit run app.py
 
 This opens the dashboard in your browser at `http://localhost:8501`. Check it looks right
 before putting it online.
+
+## Updating the 5W data
+
+- **For a temporary update:** open the dashboard and upload the new `.xlsx` file in the
+  sidebar's **5W Excel workbook** control. This only updates the current dashboard session.
+- **For a permanent update for everyone:** replace the workbook in the GitHub repository
+  and commit the change. Keep the filename
+  `Rasuwa - UNICEF_WASH_NEPAL_5Ws_Data_Entry.xlsx`; if you use a different name, make
+  sure it is the only `.xlsx` workbook in the repository root. Streamlit Community Cloud
+  will redeploy from the updated repository. If the default workbook is missing, you can
+  also upload a workbook in the sidebar for the current session.
 
 ---
 
