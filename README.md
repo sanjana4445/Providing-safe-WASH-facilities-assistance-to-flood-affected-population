@@ -6,9 +6,11 @@ project sites for Chay-Ya Nepal and UNICEF.
 
 ## Dashboard views
 
+- **Sidebar:** upload a refreshed 5W workbook, see the project countdown (15 September–31 December 2026), and check the last dashboard update time.
 - **Overview:** five programme outputs, the ten PD indicator targets, and an output-selected activity-target chart. Each bar compares one 5W Activity Target with its Activity Reached value; targets are not pooled across activities or units.
 - **Palika detail:** a four-Palika comparison chart, selected activity fields, and an expandable complete 5W register.
 - **Activities by output:** activity-type breakdowns with completed/ongoing status colors.
+- **Planning:** one board for all ten programme indicator targets, with progress, remaining target, and a completion-ranked priority chart. Targets with different units are compared by completion percentage.
 - **Beneficiary demographics:** sex and age disaggregation, with elderly and disability counts shown separately.
 - **Beneficiary explorer:** select an output, WASH activity, and people/household reach measure.
 - **Project map:** embedded Google My Maps plus filtered 5W records. Pins are not automatically linked to activities because the source has no GPS coordinates or shared site ID.
