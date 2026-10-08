@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import date, datetime
+from io import BytesIO
 from pathlib import Path
 
 from data_processing import (
@@ -162,8 +163,8 @@ def load_manual_gps_locations():
 
 
 @st.cache_data(show_spinner="Reading the 5W workbook…")
-def get_data(file_bytes_or_path):
-    return load_5w(file_bytes_or_path)
+def get_data(workbook_bytes):
+    return load_5w(BytesIO(workbook_bytes))
 
 if uploaded is not None:
     workbook_source = uploaded
@@ -184,7 +185,8 @@ else:
         st.stop()
 
 try:
-    df = get_data(workbook_source)
+    workbook_bytes = workbook_source.getvalue() if uploaded is not None else workbook_source.read_bytes()
+    df = get_data(workbook_bytes)
 except Exception as exc:
     st.error(f"Could not read the 5W workbook: {exc}")
     st.stop()
@@ -274,9 +276,9 @@ def palika_metric_table(frame):
 
 
 def render_palika_bar(frame, measure, chart_key):
-    if measure == "People reached (deduplicated)":
+    if measure == "People reached (row total)":
         values = palika_metric_table(frame)["people_reached"]
-    elif measure == "Households reached (deduplicated)":
+    elif measure == "Households reached (row total)":
         values = palika_metric_table(frame)["households_reached"]
     elif measure == "Activity records":
         values = frame.groupby("municipality").size()
@@ -442,13 +444,13 @@ elif page == "Palika detail":
     k4.metric("Palikas reporting", f"{int((reach_values['activities'] > 0).sum())} / 4")
 
     measure_options = [
-        "People reached (deduplicated)", "Households reached (deduplicated)", "Activity records",
+        "People reached (row total)", "Households reached (row total)", "Activity records",
         "People targeted (row total)", "Households targeted (row total)", "Relief items distributed",
     ]
     measure = st.selectbox("Compare Palikas by", measure_options, key="palika_measure")
     render_palika_bar(filtered, measure, "palika_metric_chart")
     if measure.endswith("row total"):
-        st.caption("Target values are shown as reported per 5W activity row and may repeat across item rows.")
+        st.caption("Values are summed as reported per 5W activity row and may include repeated reports.")
 
     st.markdown("### Activity register")
     st.dataframe(display_register(filtered), width="stretch", height=440, hide_index=True)
@@ -473,12 +475,12 @@ elif page == "Activities by output":
     )
     output_frame = output_frame[output_frame["status"].isin(selected_activity_status)]
 
-    unique_reach = build_palika_output_summary(output_frame)
-    unique_reach = unique_reach[unique_reach["output"] == selected_output]["progress"].sum()
+    reported_reach = build_palika_output_summary(output_frame)
+    reported_reach = reported_reach[reported_reach["output"] == selected_output]["progress"].sum()
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Activity rows", f"{len(output_frame):,}")
     k2.metric("Palikas", f"{output_frame['municipality'].nunique():,}")
-    k3.metric("People reached", f"{unique_reach:,.0f}", help="Deduplicated using the programme indicator rules.")
+    k3.metric("People reached", f"{reported_reach:,.0f}", help="Sum of the people-reached values reported in the matching 5W rows.")
     k4.metric("Completed", f"{int(output_frame['status'].eq('Completed').sum()):,}")
 
     activity_measure = st.selectbox(
@@ -512,7 +514,7 @@ elif page == "Activities by output":
         )
         st.plotly_chart(activity_chart, width="stretch", key="output_activity_chart")
         if activity_measure == "Reported people reached":
-            st.caption("Activity bars show row-reported reach. Use the deduplicated KPI above for programme totals.")
+            st.caption("Activity bars and the KPI both sum the people-reached values reported in the matching 5W rows.")
 
     st.markdown("### Matching 5W records")
     st.dataframe(display_register(output_frame), width="stretch", height=420, hide_index=True)
@@ -648,7 +650,7 @@ elif page == "Beneficiary explorer":
     beneficiary_chart.update_layout(height=390, plot_bgcolor="white", paper_bgcolor="white",
                                    showlegend=False, margin=dict(t=16, b=24))
     st.plotly_chart(beneficiary_chart, width="stretch", key="beneficiary_chart")
-    st.caption("Reach follows the dashboard's deduplication rules for hygiene promotion and critical supplies.")
+    st.caption("Totals sum the people or household reach reported in the selected 5W rows.")
     st.dataframe(chart_data, width="stretch", hide_index=True)
 
 elif page == "Planning":
