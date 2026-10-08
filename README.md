@@ -7,12 +7,13 @@ project sites for Chay-Ya Nepal and UNICEF.
 ## Dashboard views
 
 - **Sidebar:** upload a refreshed 5W workbook, see the project countdown (15 September–31 December 2026), and check the last dashboard update time.
-- **Overview:** five programme outputs, the ten PD indicator targets, and an output-selected activity-target chart. Each bar compares one 5W Activity Target with its Activity Reached value; targets are not pooled across activities or units.
+- **Overview:** five programme outputs, the ten PD indicator targets, and an output-selected activity-target chart. Each bar compares a row's target and reached values in the unit selected for its 5W Activity Indicator; rows with different units are not pooled.
 - **Palika detail:** a four-Palika comparison chart, selected activity fields, and an expandable complete 5W register.
 - **Activities by output:** activity-type breakdowns with completed/ongoing status colors.
 - **Planning:** one board for all ten programme indicator targets, with progress, remaining target, and a completion-ranked priority chart. Targets with different units are compared by completion percentage.
 - **Beneficiary demographics:** reported sex and age disaggregation, with elderly and disability counts shown separately.
-- **Beneficiary explorer:** select an output, WASH activity, and people/household reach measure; totals follow the values in the selected 5W rows.
+- **Beneficiary explorer:** filter hierarchically by programme output, target indicator, and the Activity dropdown's sub-indicator; compare people or household reach across Palikas.
+- **Manual activity entry:** record only the three programme targets not captured in the 5W Excel sheet: coordination meetings, needs-and-damage assessment missions, and community feedback mechanisms. All other activity and beneficiary data comes from the workbook.
 - **Project map:** embedded Google My Maps plus filtered 5W records. Pins are not automatically linked to activities because the source has no GPS coordinates or shared site ID.
 
 ## What's in this folder
@@ -81,13 +82,16 @@ Use **Download Excel monitoring pack** in the dashboard sidebar to export the cu
 
 - **Indicator Tracker:** targets, progress, remaining reach, tracking status, and progress bars.
 - **Palika Tracker:** reach and demographic disaggregation by municipality.
-- **5W Activity Register:** all 50 meaningful source fields plus mapped output/indicator and progress.
+- **5W Activity Register:** all 50 meaningful source fields plus mapped output, programme indicator, sub-indicator, and progress.
 - **Data Quality:** completeness for each mapped source field.
 - **Unmapped Activities:** rows that need mapping review.
 
 The export is generated from the workbook currently loaded in the dashboard, including an uploaded refresh. It does not modify the source UNICEF workbook.
+Only the three targets absent from the 5W sheet (coordination meetings, assessment missions, and feedback mechanisms) are entered manually. Those records are stored separately in `manual_entries.csv`; uploading or replacing the workbook does not overwrite them. Manage these records only through the dashboard's **Manual activity entry** page. All other target and beneficiary data is read from the currently loaded workbook.
 
-In the bundled 5W export, only three mapped activity rows have both an activity target and a reached value, all under Output 4. Other outputs display a no-target message until those fields are reported. An unmapped target row is flagged separately and is not included in an output chart.
+The activity-target chart uses the target/reached source fields that match each row's selected Activity Indicator unit: people/children, households, kits/materials/packages, or another explicitly reported unit. It keeps each 5W row separate and does not combine unlike units; a blank reached value stays unreported rather than being shown as zero. A row can appear under its workbook-defined programme output even when its Activity Indicator unit cannot be mapped to a people/event programme target; in that case it is excluded from the fixed indicator progress and remains listed for indicator-mapping review.
+
+The dashboard also flags rows where **Total beneficiaries reached** differs from the sum of girls, boys, women, and men, and includes those rows in a **Beneficiary Reconciliation** monitoring-export sheet. It does not silently replace either source value. People-based indicator progress follows the row's reported total, except child and MHM indicators, which use the relevant age/sex breakdown when reported; event/manual indicators use their activity-reached values. Elderly and disability figures are excluded from the reconciliation because they overlap the age/sex groups.
 
 ## 5. Project site map
 
@@ -113,21 +117,31 @@ immediately but doesn't change what anyone else sees, and resets if you reload t
 
 Either way, nothing about `app.py` needs to change \u2014 only the data file.
 
+The manual-entry CSV is intentionally excluded from Git and is not part of the 5W Excel
+file. It survives workbook replacements while the dashboard's local storage remains
+available. Streamlit Cloud can reset local files on a redeploy, so preserving these manual
+records across redeploys requires persistent external storage.
+
 ---
 
 ## How progress is calculated (read this before trusting the numbers)
 
-- Every 5W row is matched to one of the 5 Outputs by its **Activity**. If the location is a
-  school, CFS, or health facility, that overrides the activity-based guess, since Output 4
-  is defined by *where* the work happens, not what kind of work it is.
-- **Water, sanitation, and school/CFS activities**: progress is a straight sum of "Total
-  beneficiaries reached" across matching rows.
-- **All beneficiary totals** are sums of the values reported in the included 5W rows. The
-  workbook does not provide a stable distribution/event identifier that can safely
+- The selected **Activity** dropdown is categorized using the WASH activity taxonomy in
+  the currently loaded workbook's `Activity_Indicator` sheet; it determines the programme
+  output and sub-indicator. The selected **Activity Indicator** dropdown maps that activity
+  to one of the ten programme indicators. A school, CFS, or health-facility location maps
+  relevant water/sanitation access activities to Output 4's learning-space indicator.
+  MHM/dignity activities map to the programme's MHM indicator under Output 3.
+- **People and household totals** are sums of the corresponding values reported in the
+  included 5W rows. The workbook does not provide a stable distribution/event identifier that can safely
   distinguish repeated reporting from separate distributions, so the dashboard does not
   remove rows or infer duplicates.
-- Rows using an Activity this dashboard can't yet map to an Output (check the sidebar for a
-  warning) are excluded from totals rather than guessed at \u2014 open the raw sheet to see them.
+- Target progress uses the matching population group: girls plus boys for children, girls
+  plus women for MHM, and the Activity Reached field for manual indicators and water-quality
+  events. Other people-based indicators use the reported people-reached field.
+- Rows using an Activity or Activity Indicator this dashboard can't map to a programme
+  output/indicator (check the sidebar and monitoring pack for a warning) are excluded from
+  indicator totals rather than guessed at \u2014 open the raw sheet to review them.
 - Output 1 (coordination meetings, assessment visits) isn't in the 5W tool at all \u2014 track
   those two indicators separately, the same way you have been.
 
