@@ -11,8 +11,8 @@ project sites for Chay-Ya Nepal and UNICEF.
 - **Palika detail:** a four-Palika comparison chart, selected activity fields, and an expandable complete 5W register.
 - **Activities by output:** activity-type breakdowns with completed/ongoing status colors.
 - **Planning:** one board for all ten programme indicator targets, with progress, remaining target, and a completion-ranked priority chart. Targets with different units are compared by completion percentage.
-- **Beneficiary demographics:** sex and age disaggregation, with elderly and disability counts shown separately.
-- **Beneficiary explorer:** select an output, WASH activity, and people/household reach measure.
+- **Beneficiary demographics:** reported sex and age disaggregation, with elderly and disability counts shown separately.
+- **Beneficiary explorer:** select an output, WASH activity, and people/household reach measure; totals follow the values in the selected 5W rows.
 - **Project map:** embedded Google My Maps plus filtered 5W records. Pins are not automatically linked to activities because the source has no GPS coordinates or shared site ID.
 
 ## What's in this folder
@@ -122,10 +122,10 @@ Either way, nothing about `app.py` needs to change \u2014 only the data file.
   is defined by *where* the work happens, not what kind of work it is.
 - **Water, sanitation, and school/CFS activities**: progress is a straight sum of "Total
   beneficiaries reached" across matching rows.
-- **Critical WASH supplies and hygiene promotion**: multiple item rows (hygiene kit, bucket,
-  chlorination tablets, different IEC materials) often report the *same* households once per
-  item. Summing those would count the same people several times over. The dashboard instead
-  takes the single largest reported round per Palika for each of these two indicators.
+- **All beneficiary totals** are sums of the values reported in the included 5W rows. The
+  workbook does not provide a stable distribution/event identifier that can safely
+  distinguish repeated reporting from separate distributions, so the dashboard does not
+  remove rows or infer duplicates.
 - Rows using an Activity this dashboard can't yet map to an Output (check the sidebar for a
   warning) are excluded from totals rather than guessed at \u2014 open the raw sheet to see them.
 - Output 1 (coordination meetings, assessment visits) isn't in the 5W tool at all \u2014 track
