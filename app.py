@@ -7,9 +7,11 @@ from pathlib import Path
 
 from data_processing import (
     FIVEW_COLUMNS, INDICATORS_DF, OUTPUT_COLORS, PALIKAS,
-    build_activity_target_summary, build_indicator_summary, build_monitoring_workbook, build_palika_output_summary,
+    build_activity_target_summary, build_beneficiary_reconciliation, build_indicator_summary,
+    build_monitoring_workbook, build_palika_output_summary,
     build_palika_summary, load_5w,
 )
+from manual_data import load_manual_entries as read_manual_entries, save_manual_entry
 
 PROJECT_TITLE = "Providing safe WASH facilities & assistance to flood-affected population"
 st.set_page_config(page_title=PROJECT_TITLE, page_icon="\U0001F4A7", layout="wide")
@@ -33,11 +35,9 @@ MAP_EMBED_URL = f"https://www.google.com/maps/d/embed?mid={MAP_ID}"
 MAP_EDIT_URL = f"https://www.google.com/maps/d/u/0/edit?mid={MAP_ID}"
 PROJECT_START = date(2026, 9, 15)
 PROJECT_END = date(2026, 12, 31)
-MANUAL_INDICATORS = [
-    {"output": 1, "indicator": "Cluster coordination meetings (district & Palika)", "unit": "Meetings"},
-    {"output": 1, "indicator": "Field missions for needs & damage assessment", "unit": "Visits"},
-    {"output": 5, "indicator": "Functioning community feedback mechanisms", "unit": "Mechanisms"},
-]
+MANUAL_INDICATORS = INDICATORS_DF.loc[
+    ~INDICATORS_DF["tracked_in_5w"], ["output", "indicator", "unit"]
+].to_dict(orient="records")
 MANUAL_DATA_PATH = Path(__file__).with_name("manual_entries.csv")
 MANUAL_GPS_DATA_PATH = Path(__file__).with_name("manual_gps_locations.csv")
 PAGE_OPTIONS = [
@@ -78,15 +78,17 @@ FIELD_LABELS = {
     "organisations_institutions": "Organisations / institutions", "status": "Activity status",
     "start_date": "Activity start date", "end_date": "Activity end date", "notes": "Notes",
     "edit_date": "Edit date",
+    "subindicator": "Mapped sub-indicator",
 }
 SOURCE_COLUMNS = list(FIVEW_COLUMNS.values())
-FULL_REGISTER_COLUMNS = SOURCE_COLUMNS + ["output", "indicator"]
+FULL_REGISTER_COLUMNS = SOURCE_COLUMNS + ["output", "indicator", "subindicator"]
 DETAIL_COLUMNS = [
     "lead_agency", "partner", "district", "municipality", "ward", "location_type",
     "holding_centre", "type_specific_location", "sector", "activity", "activity_description",
     "modality", "activity_indicator", "activity_indicator_unit", "activity_target", "activity_reached",
     "relief_items", "relief_item_unit", "relief_items_planned", "relief_items_distributed",
     "people_targeted", "people_reached", "hh_targeted", "hh_reached", "status", "start_date", "end_date",
+    "subindicator",
 ]
 
 st.markdown(f"""
@@ -139,15 +141,7 @@ DEFAULT_PATH = Path(__file__).with_name("Rasuwa - UNICEF_WASH_NEPAL_5Ws_Data_Ent
 
 
 def load_manual_entries():
-    if not MANUAL_DATA_PATH.exists():
-        return pd.DataFrame(columns=["output", "indicator", "activity", "partner", "district", "municipality", "status", "activity_reached", "notes", "entry_date"])
-    try:
-        manual = pd.read_csv(MANUAL_DATA_PATH)
-        if manual.empty:
-            return pd.DataFrame(columns=["output", "indicator", "activity", "partner", "district", "municipality", "status", "activity_reached", "notes", "entry_date"])
-        return manual
-    except Exception:
-        return pd.DataFrame(columns=["output", "indicator", "activity", "partner", "district", "municipality", "status", "activity_reached", "notes", "entry_date"])
+    return read_manual_entries(MANUAL_DATA_PATH)
 
 
 def load_manual_gps_locations():
@@ -191,13 +185,30 @@ except Exception as exc:
     st.error(f"Could not read the 5W workbook: {exc}")
     st.stop()
 
-manual_entries = load_manual_entries()
+try:
+    manual_entries = load_manual_entries()
+except RuntimeError as exc:
+    st.error(str(exc))
+    st.stop()
+
 if not manual_entries.empty:
+    allowed_manual_indicators = {item["indicator"] for item in MANUAL_INDICATORS}
+    unexpected_indicators = sorted(
+        set(manual_entries["indicator"].dropna()) - allowed_manual_indicators
+    )
+    if unexpected_indicators:
+        st.error(
+            "Saved manual entries contain indicators that are tracked in the Excel "
+            f"workbook or are not supported: {', '.join(unexpected_indicators)}. "
+            "Review the manual-entry CSV before continuing."
+        )
+        st.stop()
     manual_rows = manual_entries.copy()
     manual_rows["output"] = pd.to_numeric(manual_rows["output"], errors="coerce")
     manual_rows["activity_reached"] = pd.to_numeric(manual_rows["activity_reached"], errors="coerce")
     manual_rows["source_row"] = "manual"
     manual_rows["activity"] = manual_rows.get("activity", manual_rows["indicator"])
+    manual_rows["subindicator"] = manual_rows.get("subindicator", manual_rows["activity"])
     manual_rows["district"] = manual_rows.get("district", "Rasuwa")
     manual_rows["municipality"] = manual_rows.get("municipality", "")
     manual_rows["status"] = manual_rows.get("status", "Completed")
@@ -217,14 +228,14 @@ output_names = dict(zip(output_labels["output"], output_labels["output_label"]))
 output_numbers = sorted(INDICATORS_DF["output"].unique().tolist())
 active_output_numbers = sorted(df["output"].dropna().astype(int).unique().tolist())
 palika_summary = build_palika_summary(df)
-unmapped = df[df["output"].isna()]
+unmapped = df[df["output"].isna() | df["indicator"].isna()]
 
 st.sidebar.markdown("---")
 st.sidebar.metric("\U0001F4CB 5W records in scope", f"{len(df):,}", help="Includes UNICEF and Chay-Ya Nepal records only.")
 if excluded_partner_rows:
     st.sidebar.caption(f"{excluded_partner_rows} record(s) from other partners excluded.")
 if len(unmapped):
-    st.sidebar.warning(f"{len(unmapped)} activity row(s) are not mapped to an output; review the Excel export.")
+    st.sidebar.warning(f"{len(unmapped)} activity row(s) are missing an output or programme-indicator mapping; review the Excel export.")
 today = datetime.now().date()
 if today < PROJECT_START:
     countdown_label = "Days until project starts"
@@ -263,9 +274,13 @@ def display_register(frame, full=False, height=500):
     table = table.drop(columns=["output"]).rename(columns={
         **FIELD_LABELS, "indicator": "Mapped PD indicator", "mapped_output": "Mapped PD output",
     })
-    columns = ["Source 5W row"] + [FIELD_LABELS[col] for col in SOURCE_COLUMNS] + ["Mapped PD output", "Mapped PD indicator"]
+    columns = ["Source 5W row"] + [FIELD_LABELS[col] for col in SOURCE_COLUMNS] + [
+        "Mapped PD output", "Mapped PD indicator", FIELD_LABELS["subindicator"],
+    ]
     if not full:
-        columns = ["Source 5W row"] + [FIELD_LABELS[col] for col in DETAIL_COLUMNS] + ["Mapped PD output", "Mapped PD indicator"]
+        columns = ["Source 5W row"] + [FIELD_LABELS[col] for col in DETAIL_COLUMNS] + [
+            "Mapped PD output", "Mapped PD indicator",
+        ]
     return table.reindex(columns=columns)
 
 
@@ -357,6 +372,25 @@ if page == "Overview":
     })[["Output #", "Indicator", "Target", "Progress", "Remaining", "Progress (%)", "Unit", "Tracking"]]
     st.dataframe(tracker_view, width="stretch", hide_index=True, height=395)
 
+    beneficiary_mismatches = build_beneficiary_reconciliation(df)
+    if len(beneficiary_mismatches):
+        st.warning(
+            f"Beneficiary totals do not match the girls + boys + women + men breakdown "
+            f"on {len(beneficiary_mismatches)} source rows. Progress uses the row's "
+            "reported total for people-based indicators, except child/MHM indicators which "
+            "use their relevant age/sex breakdown. Event/manual indicators use activity "
+            "reached. The dashboard does not infer or overwrite source values."
+        )
+        with st.expander("Review beneficiary total / disaggregation mismatches"):
+            mismatch_view = beneficiary_mismatches.rename(columns={
+                "source_row": "Source 5W row", "municipality": "Palika", "ward": "Ward",
+                "activity": "Activity", "activity_indicator": "Activity indicator",
+                "people_reached": "People reached", "girls": "Girls (<18)", "boys": "Boys (<18)",
+                "women": "Women (18+)", "men": "Men (18+)",
+                "disaggregated_total": "Disaggregated total", "difference": "Difference",
+            })
+            st.dataframe(mismatch_view, width="stretch", hide_index=True)
+
     st.markdown("### Activity target progress")
     st.caption("Each bar is one 5W activity target. Targets are not added together, so different units remain separate.")
     target_outputs = sorted(INDICATORS_DF["output"].unique().tolist())
@@ -415,9 +449,11 @@ if page == "Overview":
             "completion_pct": "Progress (%)", "status": "Status",
         })
         st.dataframe(target_table, width="stretch", hide_index=True)
-    unmapped_targets = build_activity_target_summary(df[df["output"].isna()])
+    unmapped_targets = build_activity_target_summary(
+        df[df["output"].isna() | df["indicator"].isna()]
+    )
     if len(unmapped_targets):
-        st.warning(f"{len(unmapped_targets)} activity target row(s) are unmapped and excluded from output charts.")
+        st.warning(f"{len(unmapped_targets)} activity target row(s) are missing a programme mapping and need review.")
 
 elif page == "Palika detail":
     st.caption("Compare reported activity and reach across the four programme Palikas; open the register for every source field.")
@@ -522,7 +558,7 @@ elif page == "Activities by output":
         st.dataframe(display_register(output_frame, full=True, height=550), width="stretch", height=550, hide_index=True)
 
 elif page == "Manual activity entry":
-    st.caption("Use this tab for the three indicators that are not present in the source 5W Excel file: coordination meetings, field missions, and functional feedback mechanisms.")
+    st.caption("This page is only for programme targets not recorded in the 5W Excel sheet: coordination meetings, needs-and-damage assessment missions, and community feedback mechanisms. Other activity targets and beneficiaries must come from the workbook.")
     form = st.form("manual_activity_form")
     with form:
         col1, col2, col3 = st.columns(3)
@@ -547,6 +583,7 @@ elif page == "Manual activity entry":
             "output": indicator_row["output"],
             "indicator": indicator_row["indicator"],
             "activity": indicator_row["indicator"],
+            "subindicator": indicator_row["indicator"],
             "partner": partner_value,
             "district": district,
             "municipality": municipality,
@@ -557,12 +594,13 @@ elif page == "Manual activity entry":
             "lead_agency": "",
             "source_row": "manual",
         }
-        existing = load_manual_entries()
-        rows = [] if existing.empty else existing.to_dict("records")
-        rows.append(new_row)
-        pd.DataFrame(rows).to_csv(MANUAL_DATA_PATH, index=False)
-        st.success(f"Saved manual record for {indicator_name}.")
-        st.rerun()
+        try:
+            save_manual_entry(new_row, MANUAL_DATA_PATH)
+        except RuntimeError as exc:
+            st.error(str(exc))
+        else:
+            st.success(f"Saved manual record for {indicator_name}.")
+            st.rerun()
 
     st.markdown("### Saved manual records")
     saved_rows = load_manual_entries()
@@ -611,7 +649,7 @@ elif page == "Beneficiary demographics":
     st.dataframe(other_groups, width="stretch")
 
 elif page == "Beneficiary explorer":
-    st.caption("Select an output and activity to compare reported reach across Palikas.")
+    st.caption("Filter by programme output, target indicator, and the selected 5W activity sub-indicator.")
     output_choices = ["All outputs"] + output_numbers
     chosen_output = st.selectbox(
         "Programme output", output_choices,
@@ -621,10 +659,16 @@ elif page == "Beneficiary explorer":
     beneficiary_rows = df.copy()
     if chosen_output != "All outputs":
         beneficiary_rows = beneficiary_rows[beneficiary_rows["output"] == chosen_output]
-    activity_choices = ["All activities"] + sorted(beneficiary_rows["activity"].dropna().unique().tolist())
-    chosen_activity = st.selectbox("WASH activity", activity_choices, key="beneficiary_activity")
-    if chosen_activity != "All activities":
-        beneficiary_rows = beneficiary_rows[beneficiary_rows["activity"] == chosen_activity]
+    indicator_choices = ["All indicators"] + sorted(beneficiary_rows["indicator"].dropna().unique().tolist())
+    chosen_indicator = st.selectbox("Programme indicator", indicator_choices, key="beneficiary_indicator")
+    if chosen_indicator != "All indicators":
+        beneficiary_rows = beneficiary_rows[beneficiary_rows["indicator"] == chosen_indicator]
+    subindicator_choices = ["All sub-indicators"] + sorted(beneficiary_rows["subindicator"].dropna().unique().tolist())
+    chosen_subindicator = st.selectbox(
+        "Activity sub-indicator", subindicator_choices, key="beneficiary_subindicator",
+    )
+    if chosen_subindicator != "All sub-indicators":
+        beneficiary_rows = beneficiary_rows[beneficiary_rows["subindicator"] == chosen_subindicator]
     reach_measure = st.selectbox(
         "Beneficiary measure", ["People reached", "Households reached"], key="beneficiary_measure",
     )
