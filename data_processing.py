@@ -97,12 +97,6 @@ ACTIVITY_MAP = {
     "WASH communication materials": (5, "People reached with hygiene promotion"),
     "Other WASH activity": None,  # left unmapped on purpose - needs manual review
 }
-# These two indicators are fed by several different "item" activities (different hygiene/
-# NFI items, different IEC material types) that are commonly logged as separate rows for
-# the SAME underlying distribution round at the SAME site, repeating that round's
-# demographic figures on every row. Summing across those rows would count the same people
-# once per item. Both are de-duplicated the same way: see build_indicator_summary.
-DEDUP_INDICATORS = {"People reached with critical WASH supplies", "People reached with hygiene promotion"}
 MANUAL_TRACKED_INDICATORS = {
     "Cluster coordination meetings (district & Palika)",
     "Field missions for needs & damage assessment",
@@ -250,33 +244,14 @@ def reached_value(row):
     return 0
 
 
-def is_dedup_row(indicator):
-    return indicator in DEDUP_INDICATORS
-
-
 def build_indicator_summary(df):
-    """Sums progress per indicator normally, EXCEPT for the two indicators in
-    DEDUP_INDICATORS, where multiple item-type rows commonly share one real distribution
-    round and repeat its figures. For those, within each municipality we take the single
-    largest reported reach among that area's rows for the indicator (a conservative "at
-    least this many unique people were reached" figure), then add those per-area figures
-    together, rather than summing every item row separately."""
+    """Sum reported row-level reach for each tracked indicator."""
     df = df.copy()
     df["progress"] = df.apply(progress_value, axis=1)
-    df["dedup"] = df["indicator"].apply(is_dedup_row)
-
-    dedup_totals = {}
-    for ind in DEDUP_INDICATORS:
-        mask = df["dedup"] & (df["indicator"] == ind)
-        dedup_totals[ind] = df[mask].groupby("municipality")["progress"].max().sum() if mask.any() else 0
-
-    normal = df[~df["dedup"]]
-    agg = normal.groupby("indicator", dropna=True)["progress"].sum().reset_index()
+    agg = df.groupby("indicator", dropna=True)["progress"].sum().reset_index()
 
     summary = INDICATORS_DF.merge(agg, on="indicator", how="left")
     summary["progress"] = summary["progress"].fillna(0)
-    for ind, val in dedup_totals.items():
-        summary.loc[summary["indicator"] == ind, "progress"] = val
     summary.loc[(~summary["tracked_in_5w"]) & (~summary["indicator"].isin(MANUAL_TRACKED_INDICATORS)), "progress"] = np.nan
     summary["pct"] = (summary["progress"] / summary["target"] * 100).round(1)
     return summary
@@ -325,66 +300,25 @@ def build_activity_target_summary(df, output=None):
 
 
 def build_palika_output_summary(df):
-    """Aggregate reach by Palika and Output using the indicator de-duplication rules."""
+    """Sum reported row-level reach by Palika and Output."""
     working = df.copy()
-    working["progress"] = working.apply(progress_value, axis=1)
-    normal = working[~working["indicator"].isin(DEDUP_INDICATORS)]
-    normal_totals = normal.groupby(["municipality", "output"], dropna=True)["progress"].sum().reset_index()
-
-    dedup = working[working["indicator"].isin(DEDUP_INDICATORS)]
-    if len(dedup):
-        output_by_indicator = INDICATORS_DF.set_index("indicator")["output"]
-        dedup_totals = dedup.groupby(["municipality", "indicator"], dropna=True)["progress"].max().reset_index()
-        dedup_totals["output"] = dedup_totals["indicator"].map(output_by_indicator)
-        dedup_totals = dedup_totals.groupby(["municipality", "output"], dropna=True)["progress"].sum().reset_index()
-        normal_totals = pd.concat([normal_totals, dedup_totals], ignore_index=True)
-
-    return normal_totals.groupby(["municipality", "output"], as_index=False)["progress"].sum()
+    working["progress"] = working["people_reached"].fillna(0)
+    return working.groupby(["municipality", "output"], dropna=True, as_index=False)["progress"].sum()
 
 
-DEMO_COLS = ["progress", "hh_reached", "girls", "boys", "women", "men", "elderly_women", "elderly_men", "pwd"]
-
-
-def _dedup_group_totals(group):
-    """Within one (Palika x dedup-indicator) group: the source data often repeats the SAME
-    demographic figures across every item-row from one distribution round (different
-    hygiene/NFI items, different IEC material types, all logged with identical
-    girls/boys/women/men for that visit), while 'people reached' varies per item based on
-    stock. Taking each column's max independently would mix figures from different rows
-    together inconsistently. Instead we pick the ONE row with the largest people-reached
-    figure and take ALL of its numbers together, so the demographic split always
-    corresponds to a single real reported event rather than a Frankenstein of several."""
-    if not len(group) or group["progress"].max() == 0:
-        return {c: 0 for c in DEMO_COLS}
-    best_idx = group["progress"].idxmax()
-    return {c: (group.loc[best_idx, c] if pd.notna(group.loc[best_idx, c]) else 0) for c in DEMO_COLS}
+DEMO_COLS = ["people_reached", "hh_reached", "girls", "boys", "women", "men", "elderly_women", "elderly_men", "pwd"]
 
 
 def build_palika_summary(df):
-    """Per-Palika totals. Rows feeding a DEDUP_INDICATORS indicator are de-duplicated by
-    keeping only the single largest reported round's full set of figures per indicator
-    (see _dedup_group_totals), so girls/boys/women/men stay internally consistent with
-    each other and with the headline people-reached number, instead of summing or mixing
-    values across repeated item rows. Everything else sums normally."""
+    """Per-Palika totals from the beneficiary figures reported in each 5W row."""
     df = df.copy()
-    df["progress"] = df.apply(progress_value, axis=1)
-    df["dedup"] = df["indicator"].apply(is_dedup_row)
     df["municipality"] = df["municipality"].map(normalize_palika_name)
     rows = []
     for palika in PALIKAS:
         sub = df[df["municipality"] == palika]
         row = {"palika": palika, "activities": len(sub)}
         for c in DEMO_COLS:
-            row[c] = 0
-        for ind in DEDUP_INDICATORS:
-            group = sub[(sub["dedup"]) & (sub["indicator"] == ind)]
-            totals = _dedup_group_totals(group)
-            for c in DEMO_COLS:
-                row[c] += totals[c]
-        normal = sub[~sub["dedup"]]
-        for c in DEMO_COLS:
-            row[c] += normal[c].fillna(0).sum()
-        row["people_reached"] = row.pop("progress")
+            row[c] = sub[c].fillna(0).sum()
         row["households_reached"] = row.pop("hh_reached")
         rows.append(row)
     return pd.DataFrame(rows)
