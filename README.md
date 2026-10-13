@@ -7,14 +7,14 @@ project sites for Chay-Ya Nepal and UNICEF.
 ## Dashboard views
 
 - **Sidebar:** upload a refreshed 5W workbook, see the project countdown (15 September–31 December 2026), and check the last dashboard update time.
-- **Overview:** five programme outputs, the ten PD indicator targets, and an output-selected activity-target chart. Each bar compares a row's target and reached values in the unit selected for its 5W Activity Indicator; rows with different units are not pooled.
-- **Palika detail:** a four-Palika comparison chart, selected activity fields, and an expandable complete 5W register.
-- **Activities by output:** activity-type breakdowns with completed/ongoing status colors.
+- **Overview:** five programme outputs, output-level row-reported reach, all ten PD indicator targets with the mapped 5W activity details, beneficiary totals, and an output-selected activity-target chart.
+- **Palika detail:** a four-Palika comparison chart, output/activity progress rollup, selected activity fields, and an expandable complete 5W register.
+- **Activities by output:** activity-type breakdowns with completed/ongoing status colors, plus an output/activity/sub-activity rollup of unit-aware target/reached totals and row-reported people, household, age/sex, elderly, and disability figures.
 - **Planning:** one board for all ten programme indicator targets, with progress, remaining target, and a completion-ranked priority chart. Targets with different units are compared by completion percentage.
-- **Beneficiary demographics:** reported sex and age disaggregation, with elderly and disability counts shown separately.
-- **Beneficiary explorer:** filter hierarchically by programme output, target indicator, and the Activity dropdown's sub-indicator; compare people or household reach across Palikas.
+- **Beneficiary demographics:** filter by programme output, activity, and sub-activity; review reported sex and age disaggregation, with elderly and disability counts shown separately.
+- **Beneficiary explorer:** filter hierarchically by programme output, target indicator, workbook activity, and sub-activity; compare people or household reach across Palikas.
 - **Manual activity entry:** record only the three programme targets not captured in the 5W Excel sheet: coordination meetings, needs-and-damage assessment missions, and community feedback mechanisms. All other activity and beneficiary data comes from the workbook.
-- **Project map:** embedded Google My Maps plus filtered 5W records. Pins are not automatically linked to activities because the source has no GPS coordinates or shared site ID.
+- **Project map:** embedded Google My Maps plus output/activity-filtered progress and 5W records. Pins are not automatically linked to activities because the source has no GPS coordinates or shared site ID.
 
 ## What's in this folder
 
@@ -81,6 +81,8 @@ before putting it online.
 Use **Download Excel monitoring pack** in the dashboard sidebar to export the currently loaded 5W records. The generated workbook includes:
 
 - **Indicator Tracker:** targets, progress, remaining reach, tracking status, and progress bars.
+- **Output Summary:** average indicator completion plus separate row totals for people, households, and activity target/reached fields.
+- **Activity Rollup:** output/activity/sub-activity groups with unit-aware target/reached and separate people, household, age/sex, elderly, and disability totals.
 - **Palika Tracker:** reach and demographic disaggregation by municipality.
 - **5W Activity Register:** all 50 meaningful source fields plus mapped output, programme indicator, sub-indicator, and progress.
 - **Data Quality:** completeness for each mapped source field.
@@ -89,9 +91,11 @@ Use **Download Excel monitoring pack** in the dashboard sidebar to export the cu
 The export is generated from the workbook currently loaded in the dashboard, including an uploaded refresh. It does not modify the source UNICEF workbook.
 Only the three targets absent from the 5W sheet (coordination meetings, assessment missions, and feedback mechanisms) are entered manually. Those records are stored separately in `manual_entries.csv`; uploading or replacing the workbook does not overwrite them. Manage these records only through the dashboard's **Manual activity entry** page. All other target and beneficiary data is read from the currently loaded workbook.
 
-The activity-target chart uses the target/reached source fields that match each row's selected Activity Indicator unit: people/children, households, kits/materials/packages, or another explicitly reported unit. It keeps each 5W row separate and does not combine unlike units; a blank reached value stays unreported rather than being shown as zero. A row can appear under its workbook-defined programme output even when its Activity Indicator unit cannot be mapped to a people/event programme target; in that case it is excluded from the fixed indicator progress and remains listed for indicator-mapping review.
+The activity-target chart uses the target/reached source fields that match each row's selected Activity Indicator unit. It keeps each 5W row separate and does not combine unlike units; a blank reached value stays unreported rather than being shown as zero. Programme indicator assignment follows the workbook's activity/output taxonomy, while indicator progress uses the relevant beneficiary field (or age/sex group for school/TLC/HCF and MHM indicators). Facility/system counts stay in activity progress rather than being added to people totals.
 
-The dashboard also flags rows where **Total beneficiaries reached** differs from the sum of girls, boys, women, and men, and includes those rows in a **Beneficiary Reconciliation** monitoring-export sheet. It does not silently replace either source value. People-based indicator progress follows the row's reported total, except child and MHM indicators, which use the relevant age/sex breakdown when reported; event/manual indicators use their activity-reached values. Elderly and disability figures are excluded from the reconciliation because they overlap the age/sex groups.
+Every reporting tab uses the currently loaded workbook rows and mapped Output, Activity, Sub-activity, and target indicator. Rollups keep different Activity Indicator units separate and show people, household, age/sex, elderly, and disability totals in their own columns. Beneficiary totals are row sums and may overlap across activity types; they are not deduplicated because the workbook contains no beneficiary-level IDs. The overview output summary reports average indicator completion alongside beneficiary row totals; it does not combine unlike target units into one project percentage. Workbook template rows without activity or other reported values are excluded from activity counts.
+
+The dashboard also flags rows where **Total beneficiaries reached** differs from the sum of girls, boys, women, and men, and includes those rows in a **Beneficiary Reconciliation** monitoring-export sheet. It does not silently replace either source value. Elderly and disability figures are excluded from the reconciliation because they overlap the age/sex groups.
 
 ## 5. Project site map
 
@@ -132,13 +136,27 @@ records across redeploys requires persistent external storage.
   to one of the ten programme indicators. A school, CFS, or health-facility location maps
   relevant water/sanitation access activities to Output 4's learning-space indicator.
   MHM/dignity activities map to the programme's MHM indicator under Output 3.
-- **People and household totals** are sums of the corresponding values reported in the
-  included 5W rows. The workbook does not provide a stable distribution/event identifier that can safely
-  distinguish repeated reporting from separate distributions, so the dashboard does not
-  remove rows or infer duplicates.
-- Target progress uses the matching population group: girls plus boys for children, girls
-  plus women for MHM, and the Activity Reached field for manual indicators and water-quality
-  events. Other people-based indicators use the reported people-reached field.
+- **People and household totals** shown as beneficiary totals remain sums of the corresponding
+  values reported in included 5W rows. They may overlap across activities and are not unique
+  beneficiary counts; no beneficiary IDs are present in the workbook.
+- The ten-indicator tracker shows a **Calculation basis / 5W source rows** column so each
+  progress value can be audited against its source:
+  - Safe water includes water-system repairs, community water-storage tanks, and household
+    buckets/jerrycans. Matching bucket/jerrycan rows for the same location and reported
+    beneficiary/sex-age cohort count once. Water filters/purifiers count under WASH supplies.
+  - Sanitation includes sanitation-facility repair and emergency temporary-toilet rows,
+    including school/CFS rows even when the taxonomy maps them to another output.
+  - MHM is an explicit assumption: 20% of people reached by all Standard hygiene kit rows,
+    rounded to a whole person. This includes every matching row in the loaded workbook.
+  - The school/TLC/HCF indicator sums people reached on rows whose Location Type is School
+    or Holding Centre / Displacement Site.
+  - Hygiene promotion includes Standard hygiene kit and Other essential hygiene items rows;
+    critical WASH supplies includes Household water treatment - Filter / purifier rows.
+  - Water-quality progress sums Activity Reached on water-quality monitoring rows only;
+    water-system repair counts are not treated as monitoring events. Coordination meetings,
+    assessment missions, and feedback mechanisms use the separate manual-entry form.
+- Beneficiary progress values can still overlap across different activities. The filtered
+  indicator calculations are not deduplicated into a project-wide unique-person total.
 - Rows using an Activity or Activity Indicator this dashboard can't map to a programme
   output/indicator (check the sidebar and monitoring pack for a warning) are excluded from
   indicator totals rather than guessed at \u2014 open the raw sheet to review them.
