@@ -89,7 +89,7 @@ Use **Download Excel monitoring pack** in the dashboard sidebar to export the cu
 - **Unmapped Activities:** rows that need mapping review.
 
 The export is generated from the workbook currently loaded in the dashboard, including an uploaded refresh. It does not modify the source UNICEF workbook.
-Only the three targets absent from the 5W sheet (coordination meetings, assessment missions, and feedback mechanisms) are entered manually. Those records are stored separately in `manual_entries.csv`; uploading or replacing the workbook does not overwrite them. Manage these records only through the dashboard's **Manual activity entry** page. All other target and beneficiary data is read from the currently loaded workbook.
+Only the three targets absent from the 5W sheet (coordination meetings, assessment missions, and feedback mechanisms) are entered manually. Those records are stored separately in `manual_entries.csv`; uploading or replacing the workbook does not overwrite them. Manage these records only through the dashboard's **Manual activity entry** page, where saved entries can also be deleted individually. All other target and beneficiary data is read from the currently loaded workbook.
 
 The activity-target chart uses the target/reached source fields that match each row's selected Activity Indicator unit. It keeps each 5W row separate and does not combine unlike units; a blank reached value stays unreported rather than being shown as zero. Programme indicator assignment follows the workbook's activity/output taxonomy, while indicator progress uses the relevant beneficiary field (or age/sex group for school/TLC/HCF and MHM indicators). Facility/system counts stay in activity progress rather than being added to people totals.
 
