@@ -7,7 +7,7 @@ project sites for Chay-Ya Nepal and UNICEF.
 ## Dashboard views
 
 - **Sidebar:** upload a refreshed 5W workbook, see the project countdown (15 September–31 December 2026), and check the last dashboard update time.
-- **Overview:** five programme outputs, output-level row-reported reach, all ten PD indicator targets with the mapped 5W activity details, beneficiary totals, and an output-selected activity-target chart.
+- **Overview:** five programme outputs with visual indicator target progress, output-level row-reported reach, beneficiary totals, and an output-selected activity-target chart.
 - **Palika detail:** a four-Palika comparison chart, output/activity progress rollup, selected activity fields, and an expandable complete 5W register.
 - **Activities by output:** activity-type breakdowns with completed/ongoing status colors, plus an output/activity/sub-activity rollup of unit-aware target/reached totals and row-reported people, household, age/sex, elderly, and disability figures.
 - **Planning:** one board for all ten programme indicator targets, with progress, remaining target, and a completion-ranked priority chart. Targets with different units are compared by completion percentage.
@@ -125,44 +125,3 @@ The manual-entry CSV is intentionally excluded from Git and is not part of the 5
 file. It survives workbook replacements while the dashboard's local storage remains
 available. Streamlit Cloud can reset local files on a redeploy, so preserving these manual
 records across redeploys requires persistent external storage.
-
----
-
-## How progress is calculated (read this before trusting the numbers)
-
-- The selected **Activity** dropdown is categorized using the WASH activity taxonomy in
-  the currently loaded workbook's `Activity_Indicator` sheet; it determines the programme
-  output and sub-indicator. The selected **Activity Indicator** dropdown maps that activity
-  to one of the ten programme indicators. A school, CFS, or health-facility location maps
-  relevant water/sanitation access activities to Output 4's learning-space indicator.
-  MHM/dignity activities map to the programme's MHM indicator under Output 3.
-- **People and household totals** shown as beneficiary totals remain sums of the corresponding
-  values reported in included 5W rows. They may overlap across activities and are not unique
-  beneficiary counts; no beneficiary IDs are present in the workbook.
-- The ten-indicator tracker shows a **Calculation basis / 5W source rows** column so each
-  progress value can be audited against its source:
-  - Safe water includes water-system repairs, community water-storage tanks, and household
-    buckets/jerrycans. Matching bucket/jerrycan rows for the same location and reported
-    beneficiary/sex-age cohort count once. Water filters/purifiers count under WASH supplies.
-  - Sanitation includes sanitation-facility repair and emergency temporary-toilet rows,
-    including school/CFS rows even when the taxonomy maps them to another output.
-  - MHM is an explicit assumption: 20% of people reached by all Standard hygiene kit rows,
-    rounded to a whole person. This includes every matching row in the loaded workbook.
-  - The school/TLC/HCF indicator sums people reached on rows whose Location Type is School
-    or Holding Centre / Displacement Site.
-  - Hygiene promotion includes Standard hygiene kit and Other essential hygiene items rows;
-    critical WASH supplies includes Household water treatment - Filter / purifier rows.
-  - Water-quality progress sums Activity Reached on water-quality monitoring rows only;
-    water-system repair counts are not treated as monitoring events. Coordination meetings,
-    assessment missions, and feedback mechanisms use the separate manual-entry form.
-- Beneficiary progress values can still overlap across different activities. The filtered
-  indicator calculations are not deduplicated into a project-wide unique-person total.
-- Rows using an Activity or Activity Indicator this dashboard can't map to a programme
-  output/indicator (check the sidebar and monitoring pack for a warning) are excluded from
-  indicator totals rather than guessed at \u2014 open the raw sheet to review them.
-- Output 1 (coordination meetings, assessment visits) isn't in the 5W tool at all \u2014 track
-  those two indicators separately, the same way you have been.
-
-The 5 Outputs, 10 indicators, and their targets are fixed in `data_processing.py`
-(`INDICATORS` list), taken from the Chay-Ya Monitoring Matrix. If a target ever changes,
-that's the only place you need to edit \u2014 everything else recalculates automatically.
