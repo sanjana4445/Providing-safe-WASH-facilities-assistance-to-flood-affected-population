@@ -125,10 +125,23 @@ div[data-testid="stDataFrame"] {{ border: 1px solid #E2EAE7; border-radius: 10px
 div[data-testid="stFileUploader"] {{ background: #FFFFFF; border: 1px dashed #B8CBC5; border-radius: 10px; padding: 0.4rem; }}
 div[data-testid="stButton"] button, div[data-testid="stDownloadButton"] button,
 div[data-testid="stFormSubmitButton"] button {{ border-radius: 9px; font-weight: 600; }}
+.output-progress-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(225px, 1fr)); gap: 14px; margin: 0.5rem 0 1.2rem; }}
+.output-progress-card {{ background: #FFFFFF; border: 1px solid #DCE6E2; border-top: 4px solid; border-radius: 12px; padding: 15px; box-shadow: 0 4px 14px rgba(24,58,70,0.055); }}
+.output-progress-title {{ color: {NAVY}; font-size: 1rem; font-weight: 700; margin-bottom: 0.15rem; }}
+.output-progress-subtitle {{ color: {MUTED}; font-size: 0.75rem; margin-bottom: 0.9rem; }}
+.output-indicator {{ border-top: 1px solid #E7EEEB; padding: 0.75rem 0 0.2rem; margin-top: 0.65rem; }}
+.output-indicator:first-of-type {{ border-top: 0; padding-top: 0; margin-top: 0; }}
+.output-indicator-heading {{ display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; color: #24373D; font-size: 0.82rem; font-weight: 650; line-height: 1.3; }}
+.output-indicator-status {{ flex: 0 0 auto; border-radius: 999px; padding: 2px 7px; background: #EEF3F1; color: #52666B; font-size: 0.65rem; font-weight: 600; }}
+.output-progress-track {{ height: 7px; background: #EAF0EE; border-radius: 999px; overflow: hidden; margin: 0.55rem 0 0.35rem; }}
+.output-progress-fill {{ height: 100%; border-radius: 999px; }}
+.output-progress-values {{ display: flex; justify-content: space-between; gap: 8px; color: #53666B; font-size: 0.72rem; }}
+.output-progress-values strong {{ color: {NAVY}; white-space: nowrap; }}
 @media (max-width: 760px) {{
     .block-container {{ padding: 2.5rem 1rem 2rem; }}
     div[data-testid="stRadio"] div[role="radiogroup"] {{ gap: 0.35rem; }}
     div[data-testid="stRadio"] div[role="radiogroup"] label {{ padding: 0.3rem 0.65rem; }}
+    .output-progress-grid {{ grid-template-columns: 1fr; }}
 }}
 </style>
 """, unsafe_allow_html=True)
@@ -363,20 +376,48 @@ if page == "Overview":
     k3.metric("Tracked in 5W", f"{int(tracked.shape[0])} / 10")
     k4.metric("Activity records", f"{len(df):,}")
 
-    st.markdown("### Outputs")
-    output_cards = st.columns(5)
-    for column, (_, item) in zip(output_cards, output_labels.iterrows()):
-        indicator_count = int((indicator_summary["output"] == item["output"]).sum())
-        short_label = item["output_label"].split("\u2013", 1)[-1].strip()
-        with column:
-            st.markdown(
-                f"<div style='background:#fff;border:1px solid #DCE6E2;border-top:3px solid {OUTPUT_COLORS[item['output']]};"
-                "border-radius:5px;padding:10px 11px;min-height:92px;'>"
-                f"<div style='font-size:12px;color:{MUTED};'>OUTPUT {int(item['output'])}</div>"
-                f"<div style='font-size:13px;font-weight:650;color:{NAVY};margin-top:5px;'>{short_label}</div>"
-                f"<div style='font-size:11px;color:{MUTED};margin-top:6px;'>{indicator_count} indicators</div></div>",
-                unsafe_allow_html=True,
+    st.markdown("### Target progress by output")
+    output_cards = []
+    for _, item in output_labels.iterrows():
+        output_number = int(item["output"])
+        output_indicators = indicator_summary[indicator_summary["output"] == output_number]
+        indicator_cards = []
+        for _, indicator in output_indicators.iterrows():
+            target = float(indicator["target"])
+            progress = float(indicator["progress"]) if pd.notna(indicator["progress"]) else 0.0
+            pct = float(indicator["pct"]) if pd.notna(indicator["pct"]) else 0.0
+            bar_pct = min(max(pct, 0.0), 100.0)
+            remaining = max(target - progress, 0.0)
+            if not indicator["tracked_in_5w"]:
+                status = "Manual"
+            elif pct >= 100:
+                status = "Reached"
+            elif progress > 0:
+                status = "In progress"
+            else:
+                status = "Not started"
+            indicator_cards.append(
+                f'<div class="output-indicator">'
+                f'<div class="output-indicator-heading"><span>{indicator["indicator"]}</span>'
+                f'<span class="output-indicator-status">{status}</span></div>'
+                f'<div class="output-progress-track"><div class="output-progress-fill" '
+                f'style="width:{bar_pct:.1f}%;background:{OUTPUT_COLORS[output_number]};"></div></div>'
+                f'<div class="output-progress-values"><span>{progress:,.0f} / {target:,.0f} '
+                f'{indicator["unit"]}</span><strong>{pct:.1f}%</strong></div>'
+                f'<div class="output-progress-values"><span>Remaining</span>'
+                f'<span>{remaining:,.0f} {indicator["unit"]}</span></div></div>'
             )
+        short_label = item["output_label"].split("\u2013", 1)[-1].strip()
+        output_cards.append(
+            f'<section class="output-progress-card" style="border-top-color:{OUTPUT_COLORS[output_number]}">'
+            f'<div class="output-progress-title">Output {output_number}</div>'
+            f'<div class="output-progress-subtitle">{short_label} · {len(output_indicators)} indicators</div>'
+            f'{"".join(indicator_cards)}</section>'
+        )
+    st.markdown(
+        f'<div class="output-progress-grid">{"".join(output_cards)}</div>',
+        unsafe_allow_html=True,
+    )
 
     output_reporting = build_output_reporting_summary(df, indicator_summary)
     output_view = output_reporting[[
@@ -415,39 +456,9 @@ if page == "Overview":
         "deduplicate them because the source has no beneficiary-level IDs."
     )
 
-    st.markdown("### Ten-indicator target tracker")
-    tracker = indicator_summary.copy()
-    manual_indicator_names = {
-        "Cluster coordination meetings (district & Palika)",
-        "Field missions for needs & damage assessment",
-        "Functioning community feedback mechanisms",
-    }
-    tracker["Remaining"] = (tracker["target"] - tracker["progress"]).clip(lower=0)
-    tracker["Progress (%)"] = tracker["pct"].where(tracker["tracked_in_5w"] | tracker["indicator"].isin(manual_indicator_names))
-    tracker["Tracking"] = tracker.apply(
-        lambda row: "Manual" if not row["tracked_in_5w"] else (
-            "Target reached" if row["progress"] >= row["target"] else
-            "In progress" if row["progress"] > 0 else "Not started"
-        ), axis=1,
-    )
-    tracker["Details"] = tracker.apply(
-        lambda row: row["details"] or (
-            "Manual entry required" if not row["tracked_in_5w"]
-            else "No matching activity rows in the current workbook"
-        ), axis=1,
-    )
-    tracker_view = tracker.rename(columns={
-        "output": "Output #", "indicator": "Indicator", "unit": "Unit", "target": "Target",
-        "progress": "Progress", "tracked_in_5w": "In 5W",
-        "progress_basis": "Calculation basis / 5W source rows",
-    })[[
-        "Output #", "Indicator", "Target", "Progress", "Remaining", "Progress (%)",
-        "Unit", "Tracking", "Details", "Calculation basis / 5W source rows",
-    ]]
-    st.dataframe(tracker_view, width="stretch", hide_index=True, height=395)
     st.caption(
-        "Indicator progress applies the activity filters shown in the calculation-basis column. "
-        "Beneficiary progress may overlap between different activities and is not a unique-person count."
+        "Bars show progress toward each indicator target. Beneficiary figures may overlap between "
+        "activities and are not unique-person counts."
     )
 
     beneficiary_mismatches = build_beneficiary_reconciliation(df)
