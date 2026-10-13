@@ -36,7 +36,20 @@ def save_manual_entry(entry, path):
     existing = load_manual_entries(path)
     row = {column: entry.get(column, pd.NA) for column in MANUAL_ENTRY_COLUMNS}
     updated = pd.concat([existing, pd.DataFrame([row])], ignore_index=True)
+    _write_manual_entries(updated, path)
 
+
+def delete_manual_entry(row_index, path):
+    """Delete one saved entry by its zero-based row position."""
+    path = Path(path)
+    existing = load_manual_entries(path)
+    if not isinstance(row_index, int) or isinstance(row_index, bool) or not 0 <= row_index < len(existing):
+        raise IndexError(f"Manual entry row {row_index!r} does not exist in {path}.")
+    updated = existing.drop(index=existing.index[row_index]).reset_index(drop=True)
+    _write_manual_entries(updated, path)
+
+
+def _write_manual_entries(entries, path):
     temporary_path = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -45,9 +58,9 @@ def save_manual_entry(entry, path):
             prefix=f".{path.name}.", dir=path.parent, delete=False,
         ) as temporary_file:
             temporary_path = Path(temporary_file.name)
-            updated.to_csv(temporary_file, index=False)
+            entries.to_csv(temporary_file, index=False)
         os.replace(temporary_path, path)
     except OSError as exc:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
-        raise RuntimeError(f"Could not save manual entry at {path}: {exc}") from exc
+        raise RuntimeError(f"Could not update saved manual entries at {path}: {exc}") from exc
