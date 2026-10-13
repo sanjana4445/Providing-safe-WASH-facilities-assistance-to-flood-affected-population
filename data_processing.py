@@ -28,13 +28,13 @@ INDICATORS = [
      "indicator": "People accessing appropriate sanitation", "unit": "People", "target": 10600, "tracked_in_5w": True},
     {"output": 3, "output_label": "Output 3 (W3) \u2013 Sanitation",
      "indicator": "Women & girls reached with MHM services", "unit": "People", "target": 2120, "tracked_in_5w": True},
-    {"output": 4, "output_label": "Output 4 (W4) \u2013 WASH in Schools & Health Facilities",
-     "indicator": "Children using safe WASH facilities in learning spaces", "unit": "Children", "target": 3180, "tracked_in_5w": True},
-    {"output": 5, "output_label": "Output 5 (W6) \u2013 Hygiene Promotion & Community Engagement",
+    {"output": 4, "output_label": "Output 4 (W4) \u2013 WASH in Schools/TLC/HCFs",
+     "indicator": "Children with WASH in schools/TLC/HCFs", "unit": "Children", "target": 4250, "tracked_in_5w": True},
+    {"output": 5, "output_label": "Output 5 (W5) \u2013 Hygiene Promotion",
      "indicator": "People reached with hygiene promotion", "unit": "People", "target": 10600, "tracked_in_5w": True},
-    {"output": 5, "output_label": "Output 5 (W6) \u2013 Hygiene Promotion & Community Engagement",
+    {"output": 5, "output_label": "Output 5 (W5) \u2013 Hygiene Promotion",
      "indicator": "Functioning community feedback mechanisms", "unit": "Mechanisms", "target": 5, "tracked_in_5w": False},
-    {"output": 5, "output_label": "Output 5 (W6) \u2013 Hygiene Promotion & Community Engagement",
+    {"output": 5, "output_label": "Output 5 (W5) \u2013 Hygiene Promotion",
      "indicator": "People reached with critical WASH supplies", "unit": "People", "target": 4250, "tracked_in_5w": True},
 ]
 INDICATORS_DF = pd.DataFrame(INDICATORS)
@@ -194,14 +194,31 @@ def classify_row(activity, activity_indicator, activity_indicator_unit, location
             return None, None, split_activity(activity)[1]
     if not subindicator:
         return output, None, subindicator
-    if indicator is None:
-        return output, None, subindicator
     if is_school_type_site and indicator in {
         "People accessing sufficient, safe water",
         "People accessing appropriate sanitation",
     }:
-        return 4, "Children using safe WASH facilities in learning spaces", subindicator
-    if output != INDICATOR_OUTPUTS[indicator]:
+        return 4, "Children with WASH in schools/TLC/HCFs", subindicator
+    if output == 2 and (
+        indicator is None or INDICATOR_OUTPUTS.get(indicator) != output
+    ):
+        indicator = "People accessing sufficient, safe water"
+    elif output == 3 and (
+        indicator is None or INDICATOR_OUTPUTS.get(indicator) != output
+    ):
+        indicator = "People accessing appropriate sanitation"
+    elif output == 4:
+        indicator = "Children with WASH in schools/TLC/HCFs"
+    elif output == 5 and (
+        indicator is None or INDICATOR_OUTPUTS.get(indicator) != output
+    ):
+        activity_text = _normalized_text(f"{activity} {activity_indicator} {subindicator}")
+        indicator = (
+            "People reached with hygiene promotion"
+            if any(term in activity_text for term in ("communication", "promotion", "awareness"))
+            else "People reached with critical WASH supplies"
+        )
+    if indicator is None or INDICATOR_OUTPUTS.get(indicator) != output:
         return output, None, subindicator
     return output, indicator, subindicator
 
@@ -265,7 +282,23 @@ def load_5w(path, sheet_name="5W_Data_Entry", header_row=6):
               "relief_items_planned", "relief_items_distributed", "cash_transfer_value_per_unit",
               "total_expected_cash_transfer", "total_disbursed_amount"]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
+    text_columns = [
+        "activity", "activity_description", "activity_indicator", "location_type",
+        "holding_centre", "type_specific_location", "status", "notes",
+    ]
+    has_text_data = df[text_columns].apply(
+        lambda column: column.notna() & column.astype(str).str.strip().ne("")
+    ).any(axis=1)
+    numeric_columns = [
+        "activity_target", "activity_reached", "people_targeted", "people_reached",
+        "hh_targeted", "hh_reached", "girls", "boys", "women", "men",
+        "elderly_women", "elderly_men", "pwd", "relief_items_planned",
+        "relief_items_distributed",
+    ]
+    has_reported_value = df[numeric_columns].fillna(0).ne(0).any(axis=1)
+    df = df[has_text_data | has_reported_value].copy()
     df["municipality"] = df["municipality"].map(normalize_palika_name)
+    df["ward"] = df["ward"].astype("string").fillna("")
     # Source sheet mixes real dates, typed text, and blanks in the same column - coerce to a
     # single consistent type so later display/serialization doesn't choke on the mix.
     for c in ["start_date", "end_date"]:
@@ -292,7 +325,7 @@ def progress_value(row):
     if indicator in MANUAL_TRACKED_INDICATORS or indicator == WATER_QUALITY_INDICATOR:
         reached = pd.to_numeric(row.get("activity_reached"), errors="coerce")
         return reached if pd.notna(reached) and reached > 0 else 0
-    if indicator == "Children using safe WASH facilities in learning spaces":
+    if indicator == "Children with WASH in schools/TLC/HCFs":
         children = [pd.to_numeric(row.get(col), errors="coerce") for col in ("girls", "boys")]
         if any(pd.notna(value) for value in children):
             return sum(value for value in children if pd.notna(value))
@@ -305,6 +338,140 @@ def progress_value(row):
     if pd.notna(row["people_reached"]) and row["people_reached"] > 0:
         return row["people_reached"]
     return 0
+
+
+def _people_total(records):
+    """Sum reported people counts, returning zero when the selected rows report none."""
+    values = pd.to_numeric(records["people_reached"], errors="coerce")
+    total = values.sum(min_count=1)
+    return 0 if pd.isna(total) else float(total)
+
+
+def _source_rows_text(records, value_column="people_reached"):
+    if "source_row" not in records or records.empty:
+        return ""
+    if value_column in records:
+        records = records[pd.to_numeric(records[value_column], errors="coerce").notna()]
+    source_rows = records["source_row"].dropna().unique().tolist()
+    source_rows.sort(key=lambda value: (not str(value).isdigit(), int(value) if str(value).isdigit() else str(value)))
+    if not source_rows:
+        return ""
+    return f" Source 5W rows: {', '.join(map(str, source_rows))}."
+
+
+def _indicator_progress_calculations(df):
+    """Apply the activity filters and beneficiary rules used by the PD tracker."""
+    records = df.copy()
+    if "source_row" in records:
+        records = records[
+            ~records["source_row"].astype("string").str.casefold().eq("manual")
+        ].copy()
+    activity = records["activity"].map(_normalized_text)
+
+    def selected_activity(*prefixes):
+        return records[activity.map(lambda value: any(value.startswith(prefix) for prefix in prefixes))]
+
+    water_repairs = selected_activity("water supply system source repair")
+    water_tanks = selected_activity("community water storage tank")
+    household_storage = selected_activity(
+        "household water storage bucket",
+        "household water storage jerrycan",
+    )
+    cohort_columns = [
+        column for column in (
+            "partner", "municipality", "ward", "holding_centre",
+            "type_specific_location", "people_reached", "girls", "boys", "women", "men",
+        )
+        if column in household_storage.columns
+    ]
+    unique_household_storage = (
+        household_storage.drop_duplicates(subset=cohort_columns)
+        if cohort_columns else household_storage
+    )
+    repeated_storage_rows = (
+        household_storage[
+            household_storage.duplicated(subset=cohort_columns, keep="first")
+        ]
+        if cohort_columns else household_storage.iloc[0:0]
+    )
+    water_access_rows = pd.concat(
+        [water_repairs, water_tanks, unique_household_storage],
+        ignore_index=False,
+    )
+    repeated_storage_note = (
+        f" Repeated-cohort rows excluded:{_source_rows_text(repeated_storage_rows)}"
+        if not repeated_storage_rows.empty else ""
+    )
+
+    sanitation_rows = selected_activity(
+        "sanitation facility repair rehabilitation",
+        "emergency sanitation temporary toilet",
+    )
+    hygiene_kit_rows = selected_activity("hygiene supplies standard hygiene kit")
+    hygiene_promotion_rows = pd.concat(
+        [
+            hygiene_kit_rows,
+            selected_activity("hygiene supplies other essential hygiene items"),
+        ],
+        ignore_index=False,
+    )
+    supplies_rows = selected_activity("household water treatment filter purifier")
+
+    location_type = records["location_type"].map(_normalized_text)
+    school_rows = records[
+        location_type.map(
+            lambda value: any(
+                location in value
+                for location in ("school", "holding centre", "holding center", "displacement site")
+            )
+        )
+    ]
+    water_quality_rows = records[records["indicator"].eq(WATER_QUALITY_INDICATOR)]
+    water_quality_progress = water_quality_rows.apply(progress_value, axis=1).sum()
+
+    calculations = {
+        "People accessing sufficient, safe water": (
+            _people_total(water_access_rows),
+            "Water-system repairs, community water-storage tanks, and household buckets/jerrycans; repeated bucket/jerrycan beneficiary cohorts are counted once. Filters/purifiers are counted under WASH supplies."
+            + _source_rows_text(water_access_rows)
+            + repeated_storage_note,
+        ),
+        "People accessing appropriate sanitation": (
+            _people_total(sanitation_rows),
+            "People reached on sanitation-facility repair and emergency temporary-toilet rows, including school/CFS rows mapped to another output."
+            + _source_rows_text(sanitation_rows),
+        ),
+        "Women & girls reached with MHM services": (
+            round(_people_total(hygiene_kit_rows) * 0.20),
+            "Assumption: 20% of people reached by all Standard hygiene kit rows; rounded to the nearest person."
+            + _source_rows_text(hygiene_kit_rows),
+        ),
+        "Children with WASH in schools/TLC/HCFs": (
+            _people_total(school_rows),
+            "People reached on rows whose Location Type is School or Holding Centre / Displacement Site."
+            + _source_rows_text(school_rows),
+        ),
+        "People reached with hygiene promotion": (
+            _people_total(hygiene_promotion_rows),
+            "People reached by Standard hygiene kit and Other essential hygiene items rows."
+            + _source_rows_text(hygiene_promotion_rows),
+        ),
+        "People reached with critical WASH supplies": (
+            _people_total(supplies_rows),
+            "People reached by Household water treatment - Filter / purifier rows."
+            + _source_rows_text(supplies_rows),
+        ),
+        WATER_QUALITY_INDICATOR: (
+            float(water_quality_progress),
+            (
+                "Sum of Activity Reached on water-quality monitoring rows."
+                + _source_rows_text(water_quality_rows, "activity_reached")
+                if not water_quality_rows.empty
+                else "No matching water-quality monitoring rows in the current workbook; water-system repair counts are not treated as monitoring events."
+            ),
+        ),
+    }
+    return calculations
 
 
 def _reported_value(row, preferred_columns):
@@ -351,14 +518,46 @@ def reached_value(row):
 
 
 def build_indicator_summary(df):
-    """Sum reported row-level reach for each tracked indicator."""
+    """Calculate indicator progress using each indicator's documented source-row rules."""
     df = df.copy()
     df["progress"] = df.apply(progress_value, axis=1)
     agg = df.groupby("indicator", dropna=True)["progress"].sum().reset_index()
+    activity_details = (
+        df[
+            df["indicator"].notna()
+            & df["activity"].notna()
+            & df["activity"].astype("string").str.strip().ne("")
+        ]
+        .groupby("indicator")["activity"]
+        .agg(lambda values: "; ".join(sorted(set(values.astype(str).str.strip()))))
+        .rename("details")
+        .reset_index()
+    )
 
-    summary = INDICATORS_DF.merge(agg, on="indicator", how="left")
+    summary = INDICATORS_DF.merge(agg, on="indicator", how="left").merge(
+        activity_details, on="indicator", how="left"
+    )
     summary["progress"] = summary["progress"].fillna(0)
+    summary["details"] = summary["details"].fillna("")
     summary.loc[(~summary["tracked_in_5w"]) & (~summary["indicator"].isin(MANUAL_TRACKED_INDICATORS)), "progress"] = np.nan
+    summary["progress_basis"] = ""
+    calculations = _indicator_progress_calculations(df)
+    for index, row in summary.iterrows():
+        indicator = row["indicator"]
+        if indicator in calculations:
+            progress, basis = calculations[indicator]
+            summary.at[index, "progress"] = progress
+            summary.at[index, "progress_basis"] = basis
+        elif indicator in MANUAL_TRACKED_INDICATORS:
+            manual_rows = df[
+                df["indicator"].eq(indicator)
+                & df["source_row"].astype("string").str.casefold().eq("manual")
+            ] if "source_row" in df else df[df["indicator"].eq(indicator)]
+            if manual_rows.empty:
+                basis = "Not recorded in the 5W workbook; enter the count through Manual activity entry."
+            else:
+                basis = f"Sum of activity-reached values in {len(manual_rows)} manual dashboard entry/entries."
+            summary.at[index, "progress_basis"] = basis
     summary["pct"] = (summary["progress"] / summary["target"] * 100).round(1)
     return summary
 
@@ -375,6 +574,28 @@ def build_output_summary(indicator_summary):
             "color": OUTPUT_COLORS[out_num],
         })
     return pd.DataFrame(rows)
+
+
+def build_output_reporting_summary(df, indicator_summary=None):
+    """Combine programme-target completion with row-reported output reach."""
+    indicators = (
+        build_indicator_summary(df) if indicator_summary is None else indicator_summary
+    )
+    output_summary = build_output_summary(indicators)
+    records = df[df["output"].notna()].copy()
+    records["activity_target_value"] = records.apply(target_value, axis=1)
+    records["activity_reached_value"] = records.apply(reached_value, axis=1)
+    reported = records.groupby("output", as_index=False).agg(
+        activity_rows=("source_row", "count"),
+        activity_target_rows=("activity_target_value", lambda values: int(values.gt(0).sum())),
+        activity_reached_rows=("activity_reached_value", "count"),
+        people_reached=("people_reached", lambda values: values.sum(min_count=1)),
+        households_reached=("hh_reached", lambda values: values.sum(min_count=1)),
+    )
+    result = output_summary.merge(reported, on="output", how="left")
+    for column in ["activity_rows", "activity_target_rows", "activity_reached_rows"]:
+        result[column] = result[column].fillna(0).astype(int)
+    return result
 
 
 def build_activity_target_summary(df, output=None):
@@ -403,6 +624,46 @@ def build_activity_target_summary(df, output=None):
             axis=1,
         )
     return records
+
+
+def build_activity_rollup(df):
+    """Aggregate activity progress by output, activity, sub-activity, and unit."""
+    records = df.copy()
+    records["unit_target"] = records.apply(target_value, axis=1)
+    records["unit_reached"] = records.apply(reached_value, axis=1)
+    demographic_columns = ["girls", "boys", "women", "men"]
+    demographics = records[demographic_columns].apply(pd.to_numeric, errors="coerce")
+    records["demographic_total"] = demographics.sum(axis=1, min_count=1)
+    records["beneficiary_mismatch"] = (
+        records["people_reached"].notna()
+        & records["demographic_total"].notna()
+        & records["people_reached"].ne(records["demographic_total"])
+    )
+    group_columns = [
+        "output", "activity", "subindicator", "indicator",
+        "activity_indicator", "activity_indicator_unit",
+    ]
+    grouped = records.groupby(group_columns, dropna=False, as_index=False).agg(
+        activity_rows=("source_row", "count"),
+        target_rows_reported=("unit_target", lambda values: int(values.gt(0).sum())),
+        unit_target=("unit_target", "sum"),
+        reached_rows_reported=("unit_reached", "count"),
+        unit_reached=("unit_reached", lambda values: values.sum(min_count=1)),
+        people_reached=("people_reached", lambda values: values.sum(min_count=1)),
+        households_reached=("hh_reached", lambda values: values.sum(min_count=1)),
+        demographic_total=("demographic_total", lambda values: values.sum(min_count=1)),
+        beneficiary_mismatch_rows=("beneficiary_mismatch", "sum"),
+        **{
+            column: (column, lambda values: values.sum(min_count=1))
+            for column in ["girls", "boys", "women", "men", "elderly_women", "elderly_men", "pwd"]
+        },
+    )
+    grouped["completion_pct"] = np.where(
+        grouped["unit_target"] > 0,
+        grouped["unit_reached"] / grouped["unit_target"] * 100,
+        np.nan,
+    )
+    return grouped
 
 
 def build_palika_output_summary(df):
@@ -461,12 +722,44 @@ def build_monitoring_workbook(df):
         default="Not started",
     )
     indicator_columns = {
-        "output_label": "Output", "indicator": "Indicator", "unit": "Unit",
+        "output_label": "Output", "indicator": "Indicator", "details": "Details",
+        "progress_basis": "Progress calculation / source", "unit": "Unit",
         "target": "Target", "progress": "Progress", "gap_to_target": "Remaining",
         "pct": "Progress (%)", "tracked_in_5w": "Tracked in 5W",
         "tracking_status": "Tracking status",
     }
     indicator_tracker = indicator_summary[list(indicator_columns)].rename(columns=indicator_columns)
+
+    output_columns = {
+        "output_label": "Programme output", "n_indicators": "PD indicators",
+        "avg_pct": "Average indicator progress (%)", "activity_rows": "Activity rows",
+        "activity_target_rows": "Rows with activity targets",
+        "activity_reached_rows": "Rows with activity reached values",
+        "people_reached": "People reached (row total)",
+        "households_reached": "Households reached (row total)",
+    }
+    output_tracker = build_output_reporting_summary(df, indicator_summary).rename(
+        columns=output_columns
+    )[list(output_columns.values())]
+
+    activity_rollup = build_activity_rollup(df)
+    activity_columns = {
+        "output": "Output #", "activity": "Activity", "subindicator": "Sub-activity",
+        "indicator": "Programme indicator", "activity_indicator": "Excel activity indicator",
+        "activity_indicator_unit": "Target/reached unit", "activity_rows": "Rows",
+        "target_rows_reported": "Rows with target", "unit_target": "Target total",
+        "reached_rows_reported": "Rows with reached value", "unit_reached": "Reached total",
+        "completion_pct": "Target progress (%)", "people_reached": "People reached (row total)",
+        "households_reached": "Households reached (row total)",
+        "girls": "Girls (<18)", "boys": "Boys (<18)", "women": "Women (18+)",
+        "men": "Men (18+)", "elderly_women": "Elderly women (60+)",
+        "elderly_men": "Elderly men (60+)", "pwd": "People with disabilities",
+        "demographic_total": "Age/sex breakdown total",
+        "beneficiary_mismatch_rows": "Rows with beneficiary mismatch",
+    }
+    activity_tracker = activity_rollup.rename(columns=activity_columns)[
+        list(activity_columns.values())
+    ]
 
     palika_columns = {
         "palika": "Palika", "activities": "Activity rows", "people_reached": "People reached",
@@ -537,7 +830,9 @@ def build_monitoring_workbook(df):
     })
 
     sheets = {
+        "Output Summary": output_tracker,
         "Indicator Tracker": indicator_tracker,
+        "Activity Rollup": activity_tracker,
         "Palika Tracker": palika_tracker,
         "5W Activity Register": register,
         "Data Quality": quality,
@@ -570,10 +865,15 @@ def build_monitoring_workbook(df):
                 values = [len(str(cell.value)) for cell in column_cells if cell.value is not None]
                 worksheet.column_dimensions[column_letter].width = min(max(max(values, default=10) + 2, 12), 42)
             if sheet_name == "Indicator Tracker":
+                headers = {
+                    cell.value: cell.column for cell in worksheet[1]
+                }
+                progress_column = headers["Progress (%)"]
+                progress_letter = openpyxl.utils.get_column_letter(progress_column)
                 for row in range(2, worksheet.max_row + 1):
-                    worksheet.cell(row, 7).number_format = '0.0"%"'
+                    worksheet.cell(row, progress_column).number_format = '0.0"%"'
                 worksheet.conditional_formatting.add(
-                    f"G2:G{worksheet.max_row}",
+                    f"{progress_letter}2:{progress_letter}{worksheet.max_row}",
                     openpyxl.formatting.rule.DataBarRule(start_type="num", start_value=0, end_type="num", end_value=100, color="1CABE2"),
                 )
             elif sheet_name == "Data Quality":
