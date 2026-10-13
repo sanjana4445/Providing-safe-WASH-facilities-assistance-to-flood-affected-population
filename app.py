@@ -13,7 +13,9 @@ from data_processing import (
     build_palika_output_summary,
     build_palika_summary, load_5w,
 )
-from manual_data import load_manual_entries as read_manual_entries, save_manual_entry
+from manual_data import (
+    delete_manual_entry, load_manual_entries as read_manual_entries, save_manual_entry,
+)
 
 PROJECT_TITLE = "Providing safe WASH facilities & assistance to flood-affected population"
 st.set_page_config(page_title=PROJECT_TITLE, page_icon="\U0001F4A7", layout="wide")
@@ -693,7 +695,34 @@ elif page == "Manual activity entry":
     else:
         display = saved_rows.copy()
         display["output"] = display["output"].apply(lambda x: f"Output {int(float(x))}" if pd.notna(x) and str(x).strip() not in ("", "nan") else "")
+        display.insert(0, "Record #", range(1, len(display) + 1))
         st.dataframe(display, width="stretch", hide_index=True)
+
+        def manual_record_label(position):
+            record = saved_rows.iloc[position]
+            indicator = str(record.get("indicator", "Manual activity")).strip()
+            reached = pd.to_numeric(record.get("activity_reached"), errors="coerce")
+            reached_label = f"{reached:,.0f}" if pd.notna(reached) else "No value"
+            entry_date = str(record.get("entry_date", "")).strip()
+            return f"Record {position + 1} · {indicator} · {reached_label} · {entry_date}"
+
+        delete_form = st.form("delete_manual_record_form")
+        with delete_form:
+            selected_manual_position = st.selectbox(
+                "Choose a saved record to delete",
+                range(len(saved_rows)),
+                format_func=manual_record_label,
+            )
+            delete_submitted = st.form_submit_button("Delete selected record")
+
+        if delete_submitted:
+            try:
+                delete_manual_entry(int(selected_manual_position), MANUAL_DATA_PATH)
+            except (IndexError, RuntimeError) as exc:
+                st.error(f"Could not delete the selected manual record: {exc}")
+            else:
+                st.success("Manual record deleted.")
+                st.rerun()
 
 elif page == "Beneficiary demographics":
     st.caption(
