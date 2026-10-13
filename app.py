@@ -7,8 +7,9 @@ from pathlib import Path
 
 from data_processing import (
     FIVEW_COLUMNS, INDICATORS_DF, OUTPUT_COLORS, PALIKAS,
-    build_activity_target_summary, build_beneficiary_reconciliation, build_indicator_summary,
-    build_monitoring_workbook, build_palika_output_summary,
+    build_activity_rollup, build_activity_target_summary, build_beneficiary_reconciliation,
+    build_indicator_summary, build_monitoring_workbook, build_output_reporting_summary,
+    build_palika_output_summary,
     build_palika_summary, load_5w,
 )
 from manual_data import load_manual_entries as read_manual_entries, save_manual_entry
@@ -165,18 +166,12 @@ if uploaded is not None:
 elif DEFAULT_PATH.is_file():
     workbook_source = DEFAULT_PATH
 else:
-    workbook_candidates = sorted(
-        path for path in Path(__file__).parent.glob("*.xlsx")
-        if path.is_file()
+    st.info(
+        f"The bundled workbook {DEFAULT_PATH.name!r} is not present. Upload the current "
+        "5W workbook using the sidebar; the dashboard will not silently load a differently "
+        "named, potentially stale workbook."
     )
-    if len(workbook_candidates) == 1:
-        workbook_source = workbook_candidates[0]
-    elif len(workbook_candidates) > 1:
-        st.error("The default 5W workbook is missing and multiple Excel files are available. Upload the correct 5W workbook using the sidebar.")
-        st.stop()
-    else:
-        st.info("Upload the updated 5W Excel workbook using the sidebar to load dashboard data.")
-        st.stop()
+    st.stop()
 
 try:
     workbook_bytes = workbook_source.getvalue() if uploaded is not None else workbook_source.read_bytes()
@@ -231,7 +226,7 @@ palika_summary = build_palika_summary(df)
 unmapped = df[df["output"].isna() | df["indicator"].isna()]
 
 st.sidebar.markdown("---")
-st.sidebar.metric("\U0001F4CB 5W records in scope", f"{len(df):,}", help="Includes UNICEF and Chay-Ya Nepal records only.")
+st.sidebar.metric("\U0001F4CB 5W activity rows in scope", f"{len(df):,}", help="Includes populated activity rows for UNICEF and Chay-Ya Nepal.")
 if excluded_partner_rows:
     st.sidebar.caption(f"{excluded_partner_rows} record(s) from other partners excluded.")
 if len(unmapped):
@@ -288,6 +283,38 @@ def palika_metric_table(frame):
     summary = build_palika_summary(frame).set_index("palika")
     summary.index = summary.index.str.replace(" Gaunpalika", "", regex=False)
     return summary
+
+
+def render_activity_rollup(frame, key):
+    activity_rollup = build_activity_rollup(frame)
+    if activity_rollup.empty:
+        st.info("No populated activity rows for this selection.")
+        return
+    columns = [
+        "activity", "subindicator", "indicator", "activity_indicator",
+        "activity_indicator_unit", "activity_rows", "target_rows_reported",
+        "unit_target", "reached_rows_reported", "unit_reached", "completion_pct",
+        "people_reached", "households_reached", "girls", "boys", "women", "men",
+        "elderly_women", "elderly_men", "pwd", "demographic_total",
+        "beneficiary_mismatch_rows",
+    ]
+    labels = {
+        "activity": "Activity", "subindicator": "Sub-activity",
+        "indicator": "Programme indicator", "activity_indicator": "Excel activity indicator",
+        "activity_indicator_unit": "Target/reached unit", "activity_rows": "Rows",
+        "target_rows_reported": "Rows with target", "unit_target": "Target total",
+        "reached_rows_reported": "Rows with reached value", "unit_reached": "Reached total",
+        "completion_pct": "Target progress (%)", "people_reached": "People reached (Excel total)",
+        "households_reached": "Households reached", "demographic_total": "People in age/sex breakdown",
+        "girls": "Girls (<18)", "boys": "Boys (<18)", "women": "Women (18+)",
+        "men": "Men (18+)", "elderly_women": "Elderly women (60+)",
+        "elderly_men": "Elderly men (60+)", "pwd": "People with disabilities",
+        "beneficiary_mismatch_rows": "Rows with beneficiary mismatch",
+    }
+    st.dataframe(
+        activity_rollup[columns].rename(columns=labels),
+        width="stretch", hide_index=True, key=key,
+    )
 
 
 def render_palika_bar(frame, measure, chart_key):
@@ -351,6 +378,43 @@ if page == "Overview":
                 unsafe_allow_html=True,
             )
 
+    output_reporting = build_output_reporting_summary(df, indicator_summary)
+    output_view = output_reporting[[
+        "output", "output_label", "avg_pct", "activity_rows",
+        "activity_target_rows", "activity_reached_rows", "people_reached",
+        "households_reached",
+    ]].rename(columns={
+        "output": "Output #", "output_label": "Programme output",
+        "avg_pct": "Average indicator progress (%)", "activity_rows": "Activity rows",
+        "activity_target_rows": "Rows with activity targets",
+        "activity_reached_rows": "Rows with activity reached values",
+        "people_reached": "People reached (row total)",
+        "households_reached": "Households reached (row total)",
+    })
+    st.dataframe(output_view, width="stretch", hide_index=True)
+    row_people_total = df["people_reached"].sum(min_count=1)
+    row_household_total = df["hh_reached"].sum(min_count=1)
+    age_sex_total = df[["girls", "boys", "women", "men"]].sum(min_count=1).sum(min_count=1)
+    reach_kpis = st.columns(3)
+    reach_kpis[0].metric(
+        "People reached (sum of rows)",
+        f"{row_people_total:,.0f}" if pd.notna(row_people_total) else "Not reported",
+    )
+    reach_kpis[1].metric(
+        "Households reached (sum of rows)",
+        f"{row_household_total:,.0f}" if pd.notna(row_household_total) else "Not reported",
+    )
+    reach_kpis[2].metric(
+        "Age/sex disaggregation (sum of rows)",
+        f"{age_sex_total:,.0f}" if pd.notna(age_sex_total) else "Not reported",
+        help="Sum of girls, boys, women, and men across source rows; it may overlap and does not represent unique people.",
+    )
+    st.warning(
+        "People and household totals are sums of reported 5W rows, not unique-person counts. "
+        "The same beneficiaries may appear under multiple activities; this dashboard does not "
+        "deduplicate them because the source has no beneficiary-level IDs."
+    )
+
     st.markdown("### Ten-indicator target tracker")
     tracker = indicator_summary.copy()
     manual_indicator_names = {
@@ -366,11 +430,25 @@ if page == "Overview":
             "In progress" if row["progress"] > 0 else "Not started"
         ), axis=1,
     )
+    tracker["Details"] = tracker.apply(
+        lambda row: row["details"] or (
+            "Manual entry required" if not row["tracked_in_5w"]
+            else "No matching activity rows in the current workbook"
+        ), axis=1,
+    )
     tracker_view = tracker.rename(columns={
         "output": "Output #", "indicator": "Indicator", "unit": "Unit", "target": "Target",
         "progress": "Progress", "tracked_in_5w": "In 5W",
-    })[["Output #", "Indicator", "Target", "Progress", "Remaining", "Progress (%)", "Unit", "Tracking"]]
+        "progress_basis": "Calculation basis / 5W source rows",
+    })[[
+        "Output #", "Indicator", "Target", "Progress", "Remaining", "Progress (%)",
+        "Unit", "Tracking", "Details", "Calculation basis / 5W source rows",
+    ]]
     st.dataframe(tracker_view, width="stretch", hide_index=True, height=395)
+    st.caption(
+        "Indicator progress applies the activity filters shown in the calculation-basis column. "
+        "Beneficiary progress may overlap between different activities and is not a unique-person count."
+    )
 
     beneficiary_mismatches = build_beneficiary_reconciliation(df)
     if len(beneficiary_mismatches):
@@ -488,6 +566,9 @@ elif page == "Palika detail":
     if measure.endswith("row total"):
         st.caption("Values are summed as reported per 5W activity row and may include repeated reports.")
 
+    st.markdown("### Output/activity progress for selected Palikas")
+    render_activity_rollup(filtered, "palika_activity_rollup")
+
     st.markdown("### Activity register")
     st.dataframe(display_register(filtered), width="stretch", height=440, hide_index=True)
     with st.expander("Show every source 5W field"):
@@ -501,6 +582,11 @@ elif page == "Activities by output":
         format_func=lambda number: output_names[number], key="activity_output",
     )
     output_frame = df[df["output"] == selected_output].copy()
+    st.warning(
+        "People and household reach are summed from the 5W rows and may overlap across activity "
+        "types. Age/sex totals are shown separately; elderly and disability counts may overlap "
+        "those groups and are not added to the demographic total."
+    )
     activity_options = ["All activities"] + sorted(output_frame["activity"].dropna().unique().tolist())
     selected_activity = st.selectbox("Activity type", activity_options, key="activity_type")
     if selected_activity != "All activities":
@@ -552,6 +638,14 @@ elif page == "Activities by output":
         if activity_measure == "Reported people reached":
             st.caption("Activity bars and the KPI both sum the people-reached values reported in the matching 5W rows.")
 
+    st.markdown("### Activity, sub-activity, target, and beneficiary totals")
+    st.caption(
+        "Targets and reached values stay in each Excel Activity Indicator unit. People and "
+        "households are separate totals from the corresponding reported 5W columns; the "
+        "demographic total is shown only as a cross-check."
+    )
+    render_activity_rollup(output_frame, "output_activity_rollup")
+
     st.markdown("### Matching 5W records")
     st.dataframe(display_register(output_frame), width="stretch", height=420, hide_index=True)
     with st.expander("Show every source 5W field"):
@@ -584,6 +678,7 @@ elif page == "Manual activity entry":
             "indicator": indicator_row["indicator"],
             "activity": indicator_row["indicator"],
             "subindicator": indicator_row["indicator"],
+            "activity_indicator_unit": indicator_row["unit"],
             "partner": partner_value,
             "district": district,
             "municipality": municipality,
@@ -612,11 +707,40 @@ elif page == "Manual activity entry":
         st.dataframe(display, width="stretch", hide_index=True)
 
 elif page == "Beneficiary demographics":
-    st.caption("Reported sex and age-group reach by Palika. Elderly and disability counts are shown separately to avoid double-counting overlapping groups.")
+    st.caption(
+        "Reported sex and age-group reach by selected programme output and activity. "
+        "Elderly and disability counts are shown separately to avoid double-counting overlapping groups."
+    )
+    demo_output_options = ["All outputs"] + output_numbers
+    demo_output = st.selectbox(
+        "Programme output", demo_output_options,
+        format_func=lambda number: "All outputs" if number == "All outputs" else output_names[number],
+        key="demo_output",
+    )
+    demographic_rows = df.copy()
+    if demo_output != "All outputs":
+        demographic_rows = demographic_rows[demographic_rows["output"] == demo_output]
+    demo_activities = ["All activities"] + sorted(
+        demographic_rows["activity"].dropna().unique().tolist()
+    )
+    demo_activity = st.selectbox("Activity", demo_activities, key="demo_activity")
+    if demo_activity != "All activities":
+        demographic_rows = demographic_rows[demographic_rows["activity"] == demo_activity]
+    demo_subactivities = ["All sub-activities"] + sorted(
+        demographic_rows["subindicator"].dropna().unique().tolist()
+    )
+    demo_subactivity = st.selectbox(
+        "Sub-activity", demo_subactivities, key="demo_subactivity",
+    )
+    if demo_subactivity != "All sub-activities":
+        demographic_rows = demographic_rows[demographic_rows["subindicator"] == demo_subactivity]
     demo_palikas = st.multiselect("Palika", PALIKAS, default=PALIKAS, key="demo_palikas")
-    demo_statuses = sorted(df["status"].dropna().unique().tolist())
+    demo_statuses = sorted(demographic_rows["status"].dropna().unique().tolist())
     demo_selected_status = st.multiselect("Activity status", demo_statuses, default=demo_statuses, key="demo_status")
-    demographic_rows = df[df["municipality"].isin(demo_palikas) & df["status"].isin(demo_selected_status)]
+    demographic_rows = demographic_rows[
+        demographic_rows["municipality"].isin(demo_palikas)
+        & demographic_rows["status"].isin(demo_selected_status)
+    ]
     demo_names = [palika.replace(" Gaunpalika", "") for palika in PALIKAS if palika in demo_palikas]
     demo = palika_metric_table(demographic_rows).reindex(demo_names)
     demo_kpis = st.columns(4)
@@ -647,9 +771,11 @@ elif page == "Beneficiary demographics":
     })
     st.markdown("### Additional reported groups")
     st.dataframe(other_groups, width="stretch")
+    st.markdown("### Matching output/activity target and reach")
+    render_activity_rollup(demographic_rows, "demographic_activity_rollup")
 
 elif page == "Beneficiary explorer":
-    st.caption("Filter by programme output, target indicator, and the selected 5W activity sub-indicator.")
+    st.caption("Filter by output, programme target, workbook activity, and sub-activity.")
     output_choices = ["All outputs"] + output_numbers
     chosen_output = st.selectbox(
         "Programme output", output_choices,
@@ -663,6 +789,12 @@ elif page == "Beneficiary explorer":
     chosen_indicator = st.selectbox("Programme indicator", indicator_choices, key="beneficiary_indicator")
     if chosen_indicator != "All indicators":
         beneficiary_rows = beneficiary_rows[beneficiary_rows["indicator"] == chosen_indicator]
+    activity_choices = ["All activities"] + sorted(
+        beneficiary_rows["activity"].dropna().unique().tolist()
+    )
+    chosen_activity = st.selectbox("Activity", activity_choices, key="beneficiary_activity")
+    if chosen_activity != "All activities":
+        beneficiary_rows = beneficiary_rows[beneficiary_rows["activity"] == chosen_activity]
     subindicator_choices = ["All sub-indicators"] + sorted(beneficiary_rows["subindicator"].dropna().unique().tolist())
     chosen_subindicator = st.selectbox(
         "Activity sub-indicator", subindicator_choices, key="beneficiary_subindicator",
@@ -696,6 +828,8 @@ elif page == "Beneficiary explorer":
     st.plotly_chart(beneficiary_chart, width="stretch", key="beneficiary_chart")
     st.caption("Totals sum the people or household reach reported in the selected 5W rows.")
     st.dataframe(chart_data, width="stretch", hide_index=True)
+    st.markdown("### Selected activity target/reached totals")
+    render_activity_rollup(beneficiary_rows, "beneficiary_activity_rollup")
 
 elif page == "Planning":
     st.caption(
@@ -774,6 +908,21 @@ elif page == "Planning":
         "because the targets use different units. Manually tracked indicators without an entry "
         "are treated as zero progress and marked “No manual update”."
     )
+    st.markdown("### Output-level reporting summary")
+    st.caption("Average target completion is shown alongside, not added to, row-reported beneficiary totals.")
+    planning_output_view = build_output_reporting_summary(df, indicator_summary)[[
+        "output", "output_label", "avg_pct", "activity_rows",
+        "activity_target_rows", "activity_reached_rows", "people_reached",
+        "households_reached",
+    ]].rename(columns={
+        "output": "Output #", "output_label": "Programme output",
+        "avg_pct": "Average indicator progress (%)", "activity_rows": "Activity rows",
+        "activity_target_rows": "Rows with activity targets",
+        "activity_reached_rows": "Rows with activity reached values",
+        "people_reached": "People reached (row total)",
+        "households_reached": "Households reached (row total)",
+    })
+    st.dataframe(planning_output_view, width="stretch", hide_index=True)
 
 else:
     st.caption("Shared Google My Maps layer and the related UNICEF / Chay-Ya activity records.")
@@ -839,10 +988,30 @@ else:
             hide_index=True,
         )
 
+    map_output_options = ["All outputs"] + output_numbers
+    map_output = st.selectbox(
+        "Programme output", map_output_options,
+        format_func=lambda number: "All outputs" if number == "All outputs" else output_names[number],
+        key="map_output",
+    )
+    map_activities = df.copy()
+    if map_output != "All outputs":
+        map_activities = map_activities[map_activities["output"] == map_output]
+    map_activity_options = ["All activities"] + sorted(
+        map_activities["activity"].dropna().unique().tolist()
+    )
+    map_activity = st.selectbox("Activity", map_activity_options, key="map_activity")
+    if map_activity != "All activities":
+        map_activities = map_activities[map_activities["activity"] == map_activity]
     map_palikas = st.multiselect("Palika", PALIKAS, default=PALIKAS, key="map_palikas")
     map_statuses = sorted(df["status"].dropna().unique().tolist())
     map_selected_statuses = st.multiselect("Activity status", map_statuses, default=map_statuses, key="map_statuses")
-    map_rows = df[df["municipality"].isin(map_palikas) & df["status"].isin(map_selected_statuses)]
+    map_rows = map_activities[
+        map_activities["municipality"].isin(map_palikas)
+        & map_activities["status"].isin(map_selected_statuses)
+    ]
+    st.markdown("### Selected output/activity totals")
+    render_activity_rollup(map_rows, "map_activity_rollup")
     st.markdown("### Related 5W register")
     st.dataframe(display_register(map_rows), width="stretch", height=420, hide_index=True)
     with st.expander("Show every source 5W field"):
