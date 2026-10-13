@@ -2,12 +2,13 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import date, datetime
+from html import escape
 from io import BytesIO
 from pathlib import Path
 
 from data_processing import (
     FIVEW_COLUMNS, INDICATORS_DF, OUTPUT_COLORS, PALIKAS,
-    build_activity_rollup, build_activity_target_summary, build_beneficiary_reconciliation,
+    build_activity_rollup, build_activity_target_summary,
     build_indicator_summary, build_monitoring_workbook, build_output_reporting_summary,
     build_palika_output_summary,
     build_palika_summary, load_5w,
@@ -137,6 +138,20 @@ div[data-testid="stFormSubmitButton"] button {{ border-radius: 9px; font-weight:
 .output-progress-fill {{ height: 100%; border-radius: 999px; }}
 .output-progress-values {{ display: flex; justify-content: space-between; gap: 8px; color: #53666B; font-size: 0.72rem; }}
 .output-progress-values strong {{ color: {NAVY}; white-space: nowrap; }}
+.indicator-table-wrap {{ overflow-x: auto; margin: 0.5rem 0 1.4rem; background: #FFFFFF; border: 1px solid #DCE6E2; border-radius: 12px; box-shadow: 0 4px 14px rgba(24,58,70,0.055); }}
+.indicator-table {{ width: 100%; min-width: 980px; border-collapse: collapse; }}
+.indicator-table th {{ padding: 12px 14px; background: {NAVY}; color: #FFFFFF; font-size: 0.78rem; font-weight: 650; text-align: left; }}
+.indicator-table td {{ padding: 12px 14px; border-bottom: 1px solid #E7EEEB; color: #24373D; font-size: 0.8rem; vertical-align: top; }}
+.indicator-table tr:last-child td {{ border-bottom: 0; }}
+.indicator-table tbody tr:nth-child(even) {{ background: #F8FBFA; }}
+.indicator-table-output {{ font-weight: 700; white-space: nowrap; }}
+.indicator-table-target, .indicator-table-achieved {{ white-space: nowrap; font-variant-numeric: tabular-nums; }}
+.indicator-table-achieved {{ font-weight: 700; color: {NAVY}; }}
+.indicator-table-progress {{ min-width: 120px; }}
+.indicator-table-progress-label {{ display: flex; justify-content: space-between; gap: 8px; margin-bottom: 5px; font-size: 0.72rem; }}
+.indicator-table-track {{ height: 7px; background: #EAF0EE; border-radius: 999px; overflow: hidden; }}
+.indicator-table-fill {{ height: 100%; border-radius: 999px; }}
+.indicator-table-details {{ min-width: 290px; max-width: 450px; color: #53666B !important; font-size: 0.74rem !important; line-height: 1.45; }}
 @media (max-width: 760px) {{
     .block-container {{ padding: 2.5rem 1rem 2rem; }}
     div[data-testid="stRadio"] div[role="radiogroup"] {{ gap: 0.35rem; }}
@@ -369,13 +384,6 @@ st.title(PAGE_TITLES[page])
 
 if page == "Overview":
     st.caption("Five programme outputs · ten targets · UNICEF 5W activity progress")
-    tracked = indicator_summary[indicator_summary["tracked_in_5w"]].copy()
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Programme outputs", "5")
-    k2.metric("PD indicators", "10")
-    k3.metric("Tracked in 5W", f"{int(tracked.shape[0])} / 10")
-    k4.metric("Activity records", f"{len(df):,}")
-
     st.markdown("### Target progress by output")
     output_cards = []
     for _, item in output_labels.iterrows():
@@ -419,66 +427,36 @@ if page == "Overview":
         unsafe_allow_html=True,
     )
 
-    output_reporting = build_output_reporting_summary(df, indicator_summary)
-    output_view = output_reporting[[
-        "output", "output_label", "avg_pct", "activity_rows",
-        "activity_target_rows", "activity_reached_rows", "people_reached",
-        "households_reached",
-    ]].rename(columns={
-        "output": "Output #", "output_label": "Programme output",
-        "avg_pct": "Average indicator progress (%)", "activity_rows": "Activity rows",
-        "activity_target_rows": "Rows with activity targets",
-        "activity_reached_rows": "Rows with activity reached values",
-        "people_reached": "People reached (row total)",
-        "households_reached": "Households reached (row total)",
-    })
-    st.dataframe(output_view, width="stretch", hide_index=True)
-    row_people_total = df["people_reached"].sum(min_count=1)
-    row_household_total = df["hh_reached"].sum(min_count=1)
-    age_sex_total = df[["girls", "boys", "women", "men"]].sum(min_count=1).sum(min_count=1)
-    reach_kpis = st.columns(3)
-    reach_kpis[0].metric(
-        "People reached (sum of rows)",
-        f"{row_people_total:,.0f}" if pd.notna(row_people_total) else "Not reported",
-    )
-    reach_kpis[1].metric(
-        "Households reached (sum of rows)",
-        f"{row_household_total:,.0f}" if pd.notna(row_household_total) else "Not reported",
-    )
-    reach_kpis[2].metric(
-        "Age/sex disaggregation (sum of rows)",
-        f"{age_sex_total:,.0f}" if pd.notna(age_sex_total) else "Not reported",
-        help="Sum of girls, boys, women, and men across source rows; it may overlap and does not represent unique people.",
-    )
-    st.warning(
-        "People and household totals are sums of reported 5W rows, not unique-person counts. "
-        "The same beneficiaries may appear under multiple activities; this dashboard does not "
-        "deduplicate them because the source has no beneficiary-level IDs."
-    )
-
-    st.caption(
-        "Bars show progress toward each indicator target. Beneficiary figures may overlap between "
-        "activities and are not unique-person counts."
-    )
-
-    beneficiary_mismatches = build_beneficiary_reconciliation(df)
-    if len(beneficiary_mismatches):
-        st.warning(
-            f"Beneficiary totals do not match the girls + boys + women + men breakdown "
-            f"on {len(beneficiary_mismatches)} source rows. Progress uses the row's "
-            "reported total for people-based indicators, except child/MHM indicators which "
-            "use their relevant age/sex breakdown. Event/manual indicators use activity "
-            "reached. The dashboard does not infer or overwrite source values."
+    st.markdown("### Indicator targets & progress")
+    tracker_rows = []
+    for _, indicator in indicator_summary.iterrows():
+        output_number = int(indicator["output"])
+        target = float(indicator["target"])
+        progress = float(indicator["progress"]) if pd.notna(indicator["progress"]) else 0.0
+        pct = float(indicator["pct"]) if pd.notna(indicator["pct"]) else 0.0
+        bar_pct = min(max(pct, 0.0), 100.0)
+        details = escape(str(indicator["progress_basis"]))
+        if not details.strip():
+            details = "No matching activity records in the current workbook."
+        tracker_rows.append(
+            f'<tr><td class="indicator-table-output" style="color:{OUTPUT_COLORS[output_number]}">'
+            f'Output {output_number}</td>'
+            f'<td>{escape(str(indicator["indicator"]))}</td>'
+            f'<td class="indicator-table-target">{target:,.0f} {escape(str(indicator["unit"]))}</td>'
+            f'<td class="indicator-table-achieved">{progress:,.0f} {escape(str(indicator["unit"]))}</td>'
+            f'<td class="indicator-table-progress"><div class="indicator-table-progress-label">'
+            f'<span>{pct:.1f}%</span><span>{max(target - progress, 0):,.0f} remaining</span></div>'
+            f'<div class="indicator-table-track"><div class="indicator-table-fill" '
+            f'style="width:{bar_pct:.1f}%;background:{OUTPUT_COLORS[output_number]}"></div></div></td>'
+            f'<td class="indicator-table-details">{details}</td></tr>'
         )
-        with st.expander("Review beneficiary total / disaggregation mismatches"):
-            mismatch_view = beneficiary_mismatches.rename(columns={
-                "source_row": "Source 5W row", "municipality": "Palika", "ward": "Ward",
-                "activity": "Activity", "activity_indicator": "Activity indicator",
-                "people_reached": "People reached", "girls": "Girls (<18)", "boys": "Boys (<18)",
-                "women": "Women (18+)", "men": "Men (18+)",
-                "disaggregated_total": "Disaggregated total", "difference": "Difference",
-            })
-            st.dataframe(mismatch_view, width="stretch", hide_index=True)
+    st.markdown(
+        '<div class="indicator-table-wrap"><table class="indicator-table">'
+        '<thead><tr><th>Output</th><th>Indicator</th><th>Target</th><th>Achieved</th>'
+        '<th>Progress</th><th>Details</th></tr></thead>'
+        f'<tbody>{"".join(tracker_rows)}</tbody></table></div>',
+        unsafe_allow_html=True,
+    )
 
     st.markdown("### Activity target progress")
     st.caption("Each bar is one 5W activity target. Targets are not added together, so different units remain separate.")
