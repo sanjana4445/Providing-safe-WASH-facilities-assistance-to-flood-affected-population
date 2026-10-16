@@ -168,7 +168,7 @@ uploaded = st.sidebar.file_uploader(
     "5W Excel workbook", type=["xlsx"],
     help="The dashboard reads the bundled UNICEF workbook unless a newer export is uploaded.",
 )
-DEFAULT_PATH = Path(__file__).with_name("Rasuwa - UNICEF_WASH_NEPAL_5Ws_Data_Entry.xlsx")
+DEFAULT_PATH = Path(__file__).with_name("Rasuwa_-_UNICEF_WASH_NEPAL_5Ws_Data_Entry.xlsx")
 
 
 def load_manual_entries():
@@ -643,7 +643,12 @@ elif page == "Activities by output":
         st.dataframe(display_register(output_frame, full=True, height=550), width="stretch", height=550, hide_index=True)
 
 elif page == "Manual activity entry":
-    st.caption("This page is only for programme targets not recorded in the 5W Excel sheet: coordination meetings, needs-and-damage assessment missions, and community feedback mechanisms. Other activity targets and beneficiaries must come from the workbook.")
+    st.caption(
+        "Record the three programme targets not tracked in the 5W Excel sheet: coordination "
+        "meetings, needs-and-damage assessment missions, and community feedback mechanisms. "
+        "Saved entries are kept separately from the workbook, so uploading or replacing the "
+        "Excel file will not change them."
+    )
     form = st.form("manual_activity_form")
     with form:
         col1, col2, col3 = st.columns(3)
